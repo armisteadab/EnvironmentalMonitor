@@ -1,0 +1,75 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@ViewData["Title"] - ESP32 Environmental Monitor</title>
+    <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
+    <link rel="stylesheet" href="~/css/dashboard.css" asp-append-version="true" />
+</head>
+<body>
+    <div class="app-shell">
+        <aside class="sidebar">
+            <div class="sidebar-brand">
+                <span class="brand-icon">&#128225;</span>
+                <span class="brand-text">ESP32 Environmental Monitor</span>
+            </div>
+            <nav class="sidebar-nav">
+                <a class="nav-item active" href="/">
+                    <span class="nav-icon">&#127968;</span> Dashboard
+                </a>
+                <a class="nav-item" href="#">
+                    <span class="nav-icon">&#128225;</span> Sensors
+                </a>
+                <a class="nav-item" href="#">
+                    <span class="nav-icon">&#128203;</span> Data
+                </a>
+                <a class="nav-item" href="#">
+                    <span class="nav-icon">&#128200;</span> Charts
+                </a>
+                <a class="nav-item" href="#">
+                    <span class="nav-icon">&#128276;</span> Alerts
+                </a>
+                <a class="nav-item" href="#">
+                    <span class="nav-icon">&#128196;</span> Reports
+                </a>
+                <a class="nav-item" href="#">
+                    <span class="nav-icon">&#9881;</span> Settings
+                </a>
+                <a class="nav-item" href="#">
+                    <span class="nav-icon">&#8505;</span> About
+                </a>
+            </nav>
+            <div class="sidebar-status">
+                <div class="status-title">Data Status</div>
+                <div class="status-line"><span class="status-dot"></span> All systems operational</div>
+                <div class="status-sub">Last data received</div>
+                <div class="status-time">@ViewData["LastDataTime"]</div>
+            </div>
+        </aside>
+
+        <div class="main-col">
+            <header class="topbar">
+                <div class="topbar-title">@ViewData["Title"]</div>
+                <div class="topbar-right">
+                    <span class="topbar-time">@ViewData["HeaderTime"]</span>
+                    <span class="topbar-user">&#128100; admin &#9662;</span>
+                </div>
+            </header>
+
+            <main class="content">
+                @RenderBody()
+            </main>
+
+            <footer class="app-footer">
+                &copy; 2026 ESP32 Environmental Monitor &nbsp;|&nbsp; Built with ASP.NET Core MVC &nbsp;|&nbsp; Data updated every 30 seconds
+            </footer>
+        </div>
+    </div>
+
+    <script src="~/lib/jquery/dist/jquery.min.js"></script>
+    <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    @await RenderSectionAsync("Scripts", required: false)
+</body>
+</html>

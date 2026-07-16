@@ -1,0 +1,216 @@
+@model EnvironmentalMonitor.Models.DashboardViewModel
+@{
+    ViewData["Title"] = "Dashboard";
+    ViewData["HeaderTime"] = Model.AsOf.ToString("MMM d, yyyy  h:mm tt");
+    ViewData["LastDataTime"] = Model.AsOf.ToString("MMM d, yyyy h:mm:ss tt");
+}
+
+<!-- ===================== Row 1: Sensor cards + Map ===================== -->
+<div class="dash-row row-cards">
+    @foreach (var card in Model.Cards)
+    {
+        <div class="card-panel sensor-card">
+            <div class="sensor-card-head">
+                <span>@card.Name.ToUpper()</span>
+                <span class="online-badge" style="color:@card.ColorHex;">
+                    <span class="dot" style="background:@card.ColorHex;"></span>
+                    @(card.Online ? "Online" : "Offline")
+                </span>
+            </div>
+            <div class="sensor-card-body">
+                <div>
+                    <span class="sensor-temp-f" style="color:@card.ColorHex;">@card.TempF.ToString("0")</span>
+                    <span class="sensor-temp-f" style="font-size:1.1rem;color:@card.ColorHex;"> &deg;F</span>
+                    <div class="sensor-temp-c">@card.TempC.ToString("0") &deg;C</div>
+                </div>
+                <div class="sensor-icon">&#127777;</div>
+            </div>
+            <div class="sensor-humidity">
+                <span>&#128167;</span> @card.Humidity.ToString("0") %
+            </div>
+        </div>
+    }
+
+</div>
+
+<!-- ===================== Row 2: Charts ===================== -->
+<div class="dash-row row-charts">
+    <div class="card-panel chart-panel">
+        <div class="chart-panel-head">
+            <h3>Temperature (&deg;F) - Last 24 Hours</h3>
+        </div>
+        <canvas id="tempChart"></canvas>
+    </div>
+    <div class="card-panel chart-panel">
+        <div class="chart-panel-head">
+            <h3>Humidity (%) - Last 24 Hours</h3>
+        </div>
+        <canvas id="humChart"></canvas>
+    </div>
+</div>
+
+<!-- ===================== Row 3: Recent Readings + Gauges ===================== -->
+<div class="dash-row row-bottom">
+    <div class="card-panel table-panel">
+        <h3>Recent Readings</h3>
+        <table class="readings-table">
+            <thead>
+                <tr>
+                    <th>Time</th>
+                    <th>Sensor</th>
+                    <th>Temp (&deg;F)</th>
+                    <th>Temp (&deg;C)</th>
+                    <th>Humidity (%)</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var row in Model.RecentReadings)
+                {
+                    <tr>
+                        <td>@row.Timestamp.ToString("MMM d, yyyy h:mm tt")</td>
+                        <td><span class="sensor-dot" style="background:@row.ColorHex;"></span>@row.SensorName</td>
+                        <td>@row.TempF.ToString("0")</td>
+                        <td>@row.TempC.ToString("0")</td>
+                        <td>@row.Humidity.ToString("0")</td>
+                        <td class="@(row.Online ? "status-online" : "")">@(row.Online ? "Online" : "Offline")</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+        <a class="view-all-link" href="#">View all data &rarr;</a>
+    </div>
+
+    <div class="card-panel gauge-panel">
+        <h3>Temperature Summary (&deg;F)</h3>
+        <div class="gauge-grid">
+            @foreach (var card in Model.Cards)
+            {
+                <div class="gauge-item">
+                    <div class="gauge-label">@card.Name</div>
+                    <canvas class="gauge-canvas" data-value="@card.TempF" data-color="@card.ColorHex" width="140" height="90"></canvas>
+                    <div class="gauge-value" style="color:@card.ColorHex;">@card.TempF.ToString("0") &deg;F</div>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        const chartLabels = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.ChartLabels));
+        const tempSeries = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.TempSeries));
+        const humSeries = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.HumiditySeries));
+
+
+        const colors = {
+            "Outdoor": "#3b82f6",
+            "Upstairs": "#f59e0b",
+            "Basement": "#10b981"
+        };
+
+        function buildDatasets(seriesObj) {
+            return Object.keys(seriesObj).map(name => ({
+                label: name,
+                data: seriesObj[name],
+                borderColor: colors[name] || "#888",
+                backgroundColor: colors[name] || "#888",
+                spanGaps: true,
+                tension: 0.3,
+                pointRadius: 2,
+                borderWidth: 2
+            }));
+        }
+
+        new Chart(document.getElementById('tempChart'), {
+            type: 'line',
+            data: { labels: chartLabels, datasets: buildDatasets(tempSeries) },
+            options: {
+                responsive: true,
+                interaction: { mode: 'index', intersect: false },
+                plugins: { legend: { position: 'top', align: 'start' } },
+                scales: {
+                    x: { ticks: { maxTicksLimit: 8 } },
+                    y: { title: { display: false } }
+                }
+            }
+        });
+
+        new Chart(document.getElementById('humChart'), {
+            type: 'line',
+            data: { labels: chartLabels, datasets: buildDatasets(humSeries) },
+            options: {
+                responsive: true,
+                interaction: { mode: 'index', intersect: false },
+                plugins: { legend: { position: 'top', align: 'start' } },
+                scales: {
+                    x: { ticks: { maxTicksLimit: 8 } },
+                    y: { min: 0, max: 100 }
+                }
+            }
+        });
+
+        // ---- Simple gauge drawing (min 32F, max 104F like the reference) ----
+        document.querySelectorAll('.gauge-canvas').forEach(canvas => {
+            const ctx = canvas.getContext('2d');
+            const value = parseFloat(canvas.dataset.value);
+            const color = canvas.dataset.color;
+            const min = 32, max = 104;
+            const w = canvas.width, h = canvas.height;
+            const cx = w / 2, cy = h - 10, r = Math.min(w / 2 - 10, h - 20);
+
+            const startAngle = Math.PI; // 180deg (left)
+            const endAngle = 0; // 0deg (right)
+            const pct = Math.max(0, Math.min(1, (value - min) / (max - min)));
+            // Sweep over the TOP of the dial (through 270deg) instead of straight
+            // across the bottom, so the needle points up into the gauge at 50%.
+            const valueAngle = startAngle + Math.PI * pct;
+
+
+            ctx.clearRect(0, 0, w, h);
+
+            // background arc
+            ctx.beginPath();
+            ctx.arc(cx, cy, r, startAngle, endAngle, false);
+            ctx.lineWidth = 10;
+            ctx.strokeStyle = '#e6e9ef';
+            ctx.stroke();
+
+            // value arc
+            ctx.beginPath();
+            ctx.arc(cx, cy, r, startAngle, valueAngle, false);
+            ctx.lineWidth = 10;
+            ctx.strokeStyle = color;
+            ctx.lineCap = 'round';
+            ctx.stroke();
+
+            // needle
+            ctx.beginPath();
+            ctx.moveTo(cx, cy);
+            ctx.lineTo(cx + (r - 14) * Math.cos(valueAngle), cy + (r - 14) * Math.sin(valueAngle));
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = '#1f2937';
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.arc(cx, cy, 3, 0, 2 * Math.PI);
+            ctx.fillStyle = '#1f2937';
+            ctx.fill();
+
+            // min/max labels
+            ctx.fillStyle = '#6b7280';
+            ctx.font = '9px sans-serif';
+            ctx.textAlign = 'left';
+            ctx.fillText(min + '\u00B0', cx - r - 4, cy + 12);
+            ctx.textAlign = 'right';
+            ctx.fillText(max + '\u00B0', cx + r + 4, cy + 12);
+        });
+
+        // ---- Auto-reload the dashboard every 30 minutes ----
+        setTimeout(function () {
+            window.location.reload();
+        }, 30 * 60 * 1000);
+    </script>
+}
+
+

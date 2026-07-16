@@ -1,0 +1,48 @@
+using System;
+using System.Collections.Generic;
+
+namespace EnvironmentalMonitor.Models
+{
+    public class SensorReading
+    {
+        public DateTime Timestamp { get; set; }
+        public string Device { get; set; } = string.Empty;
+        public double TempC { get; set; }
+        public double TempF { get; set; }
+        public double Humidity { get; set; }
+        public string Ip { get; set; } = string.Empty;
+    }
+
+    public class SensorCard
+    {
+        public string Name { get; set; } = string.Empty;   // "Outdoor", "Upstairs", "Basement"
+        public string RawKey { get; set; } = string.Empty; // "OUTSIDE", "UPSTAIRS", "BASEMENT"
+        public double TempF { get; set; }
+        public double TempC { get; set; }
+        public double Humidity { get; set; }
+        public bool Online { get; set; }
+        public string ColorHex { get; set; } = "#3b82f6";
+        public DateTime Timestamp { get; set; }
+    }
+
+    public class RecentReadingRow
+    {
+        public DateTime Timestamp { get; set; }
+        public string SensorName { get; set; } = string.Empty;
+        public string ColorHex { get; set; } = string.Empty;
+        public double TempF { get; set; }
+        public double TempC { get; set; }
+        public double Humidity { get; set; }
+        public bool Online { get; set; }
+    }
+
+    public class DashboardViewModel
+    {
+        public DateTime AsOf { get; set; }
+        public List<SensorCard> Cards { get; set; } = new();
+        public List<string> ChartLabels { get; set; } = new();
+        public Dictionary<string, List<double?>> TempSeries { get; set; } = new();
+        public Dictionary<string, List<double?>> HumiditySeries { get; set; } = new();
+        public List<RecentReadingRow> RecentReadings { get; set; } = new();
+    }
+}
