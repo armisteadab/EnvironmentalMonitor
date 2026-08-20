@@ -341,11 +341,29 @@ body {
     margin: 0 0 12px 0;
 }
 
+.table-panel {
+    display: flex;
+    flex-direction: column;
+}
+
+.readings-table-wrap {
+    max-height: 420px;
+    overflow-y: auto;
+}
+
 .readings-table {
     width: 100%;
     border-collapse: collapse;
     font-size: 0.88rem;
 }
+
+.readings-table thead th {
+    position: sticky;
+    top: 0;
+    background: var(--card-bg);
+    z-index: 1;
+}
+
 
 .readings-table th {
     text-align: left;
@@ -415,3 +433,67 @@ body {
     font-weight: 700;
     margin-top: 6px;
 }
+
+/* ---------------- Sensors modal ---------------- */
+.sensors-modal-content {
+    border-radius: 12px;
+    border: none;
+}
+
+.sensors-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.sensor-list-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 4px;
+    border-bottom: 1px solid var(--card-border);
+    font-size: 0.95rem;
+}
+
+.sensor-list-item:last-child {
+    border-bottom: none;
+}
+
+.sensor-list-name {
+    font-weight: 600;
+    flex: 1 1 auto;
+}
+
+.sensor-list-type {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    background: var(--page-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 6px;
+    padding: 2px 8px;
+}
+
+.sensor-list-status {
+    font-size: 0.8rem;
+    font-weight: 600;
+    min-width: 60px;
+    text-align: right;
+}
+
+.sensor-list-status.status-online {
+    color: var(--accent-green);
+}
+
+.sensor-list-status.status-offline {
+    color: #ef4444;
+}
+
+.sensors-loading,
+.sensors-empty {
+    list-style: none;
+    padding: 20px 4px;
+    text-align: center;
+    color: var(--text-muted);
+}
+
+

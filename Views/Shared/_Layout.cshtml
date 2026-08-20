@@ -18,12 +18,14 @@
                 <a class="nav-item active" href="/">
                     <span class="nav-icon">&#127968;</span> Dashboard
                 </a>
-                <a class="nav-item" href="#">
+                <a class="nav-item" href="#" id="sensorsNavLink" data-bs-toggle="modal" data-bs-target="#sensorsModal">
                     <span class="nav-icon">&#128225;</span> Sensors
                 </a>
-                <a class="nav-item" href="#">
+
+                <a class="nav-item" href="/Dashboard/DownloadCsv" download>
                     <span class="nav-icon">&#128203;</span> Data
                 </a>
+
                 <a class="nav-item" href="#">
                     <span class="nav-icon">&#128200;</span> Charts
                 </a>
@@ -31,15 +33,10 @@
                     <span class="nav-icon">&#128276;</span> Alerts
                 </a>
                 <a class="nav-item" href="#">
-                    <span class="nav-icon">&#128196;</span> Reports
-                </a>
-                <a class="nav-item" href="#">
                     <span class="nav-icon">&#9881;</span> Settings
                 </a>
-                <a class="nav-item" href="#">
-                    <span class="nav-icon">&#8505;</span> About
-                </a>
             </nav>
+
             <div class="sidebar-status">
                 <div class="status-title">Data Status</div>
                 <div class="status-line"><span class="status-dot"></span> All systems operational</div>
@@ -53,7 +50,8 @@
                 <div class="topbar-title">@ViewData["Title"]</div>
                 <div class="topbar-right">
                     <span class="topbar-time">@ViewData["HeaderTime"]</span>
-                    <span class="topbar-user">&#128100; admin &#9662;</span>
+                    <span class="topbar-user">&#128100; guest &#9662;</span>
+
                 </div>
             </header>
 
@@ -67,9 +65,71 @@
         </div>
     </div>
 
+    <!-- ===================== Sensors Modal ===================== -->
+    <div class="modal fade" id="sensorsModal" tabindex="-1" aria-labelledby="sensorsModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content sensors-modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="sensorsModalLabel">
+                        <span class="nav-icon">&#128225;</span> Sensors
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <ul class="sensors-list" id="sensorsList">
+                        <li class="sensors-loading">Loading sensors&hellip;</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="~/lib/jquery/dist/jquery.min.js"></script>
     <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script>
+        (function () {
+            var sensorsModalEl = document.getElementById('sensorsModal');
+            if (!sensorsModalEl) return;
+            var sensorsList = document.getElementById('sensorsList');
+
+            function renderSensors(sensors) {
+                if (!sensors || sensors.length === 0) {
+                    sensorsList.innerHTML = '<li class="sensors-empty">No sensors found.</li>';
+                    return;
+                }
+                sensorsList.innerHTML = sensors.map(function (s) {
+                    var statusClass = s.online ? 'status-online' : 'status-offline';
+                    var statusText = s.online ? 'Online' : 'Offline';
+                    return (
+                        '<li class="sensor-list-item">' +
+                            '<span class="sensor-dot" style="background:' + s.colorHex + ';"></span>' +
+                            '<span class="sensor-list-name">' + s.name + '</span>' +
+                            '<span class="sensor-list-type">' + s.sensorType + '</span>' +
+                            '<span class="sensor-list-status ' + statusClass + '">' + statusText + '</span>' +
+                        '</li>'
+                    );
+                }).join('');
+            }
+
+            sensorsModalEl.addEventListener('show.bs.modal', function () {
+                sensorsList.innerHTML = '<li class="sensors-loading">Loading sensors&hellip;</li>';
+                fetch('/Dashboard/Sensors')
+                    .then(function (resp) {
+                        if (!resp.ok) throw new Error('Request failed');
+                        return resp.json();
+                    })
+                    .then(function (data) {
+                        renderSensors(data);
+                    })
+                    .catch(function () {
+                        sensorsList.innerHTML = '<li class="sensors-empty">Unable to load sensors.</li>';
+                    });
+            });
+        })();
+    </script>
     @await RenderSectionAsync("Scripts", required: false)
 </body>
 </html>
+
+

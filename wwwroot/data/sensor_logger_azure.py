@@ -6,7 +6,7 @@ import socket
 import time
 from datetime import datetime, timezone
 
-from azure.iot.device import IoTHubDeviceClient, Message
+import requests
 
 # ==========================================
 # Sensor configuration
@@ -14,23 +14,30 @@ from azure.iot.device import IoTHubDeviceClient, Message
 SENSORS = [
     "10.0.0.108",  # upstairs
     "10.0.0.38",   # basement
-    "10.0.0.175",  # outside
+    "10.0.0.202",  # outside
 ]
 
 PORT = 13
 CSV_FILE = "sensor_log.csv"
 POLL_INTERVAL = 30 * 60
 SOCKET_TIMEOUT = 5
+HTTP_TIMEOUT = 10
 
-# Store the Azure IoT Hub DEVICE connection string in an environment variable.
-# Do not paste the connection string directly into this source file.
+# The URL of the deployed EnvironmentalMonitor app's sensor ingest endpoint.
+# Defaults to the current Azure App Service deployment, but can be overridden
+# with an environment variable so this script works against any environment
+# (local dev, staging, a future redeploy, etc.) without editing source.
 #
 # Linux/macOS:
-#   export IOTHUB_DEVICE_CONNECTION_STRING='HostName=...'
+#   export SENSOR_INGEST_URL='https://<your-app>.azurewebsites.net/api/sensor-ingest'
 #
 # Windows PowerShell:
-#   $env:IOTHUB_DEVICE_CONNECTION_STRING='HostName=...'
-IOTHUB_CONNECTION_STRING = os.environ.get("IOTHUB_DEVICE_CONNECTION_STRING")
+#   $env:SENSOR_INGEST_URL='https://<your-app>.azurewebsites.net/api/sensor-ingest'
+DEFAULT_INGEST_URL = (
+    "https://environmentalmonitor20260715220237-etdsargvdjaueygd"
+    ".canadacentral-01.azurewebsites.net/api/sensor-ingest"
+)
+SENSOR_INGEST_URL = os.environ.get("SENSOR_INGEST_URL", DEFAULT_INGEST_URL)
 
 # Matches:
 # DEVICE=BASEMENT TEMP_C=20.0 TEMP_F=68.0 HUMIDITY=63.4%
@@ -43,7 +50,7 @@ PATTERN = re.compile(
 
 
 def ensure_csv_exists() -> None:
-    """Create the CSV file and header if the file does not already exist."""
+    """Create the local CSV backup file and header if it does not already exist."""
     try:
         with open(CSV_FILE, "x", newline="", encoding="utf-8") as file:
             writer = csv.writer(file)
@@ -59,20 +66,6 @@ def ensure_csv_exists() -> None:
             )
     except FileExistsError:
         pass
-
-
-def create_iot_client() -> IoTHubDeviceClient:
-    """Create and connect the Azure IoT Hub device client."""
-    if not IOTHUB_CONNECTION_STRING:
-        raise RuntimeError(
-            "IOTHUB_DEVICE_CONNECTION_STRING environment variable is not set."
-        )
-
-    client = IoTHubDeviceClient.create_from_connection_string(
-        IOTHUB_CONNECTION_STRING
-    )
-    client.connect()
-    return client
 
 
 def poll_sensor(sensor_ip: str) -> str:
@@ -105,7 +98,7 @@ def append_to_csv(
     humidity: float,
     sensor_ip: str,
 ) -> None:
-    """Keep the existing local CSV backup."""
+    """Keep a local CSV backup, in case the app is briefly unreachable."""
     with open(CSV_FILE, "a", newline="", encoding="utf-8") as file:
         writer = csv.writer(file)
         writer.writerow(
@@ -120,8 +113,7 @@ def append_to_csv(
         )
 
 
-def send_to_azure(
-    client: IoTHubDeviceClient,
+def send_to_app(
     timestamp_utc: str,
     device_name: str,
     temp_c: float,
@@ -129,7 +121,7 @@ def send_to_azure(
     humidity: float,
     sensor_ip: str,
 ) -> None:
-    """Send one JSON telemetry message to Azure IoT Hub."""
+    """POST one JSON telemetry reading to the deployed app's ingest endpoint."""
     payload = {
         "recordedUtc": timestamp_utc,
         "deviceId": device_name,
@@ -139,31 +131,21 @@ def send_to_azure(
         "sensorIp": sensor_ip,
     }
 
-    message = Message(json.dumps(payload))
-    message.content_type = "application/json"
-    message.content_encoding = "utf-8"
-
-    # These are optional application properties that can later be used
-    # by IoT Hub message routing rules.
-    message.custom_properties["deviceId"] = device_name
-    message.custom_properties["messageType"] = "sensorReading"
-
-    client.send_message(message)
+    response = requests.post(
+        SENSOR_INGEST_URL,
+        data=json.dumps(payload),
+        headers={"Content-Type": "application/json"},
+        timeout=HTTP_TIMEOUT,
+    )
+    response.raise_for_status()
 
 
 def main() -> None:
     ensure_csv_exists()
 
     print("Starting sensor logger...")
-    print("Local CSV logging is enabled.")
-
-    try:
-        iot_client = create_iot_client()
-        print("Connected to Azure IoT Hub.")
-    except Exception as exc:
-        iot_client = None
-        print(f"Azure connection unavailable at startup: {exc}")
-        print("Readings will still be written to the local CSV file.")
+    print("Local CSV backup logging is enabled.")
+    print(f"Sending readings to: {SENSOR_INGEST_URL}")
 
     try:
         while True:
@@ -196,18 +178,9 @@ def main() -> None:
                     )
                     print(f"Saved local reading for {device_name}.")
 
-                    # Try Azure without preventing local collection.
-                    if iot_client is None:
-                        try:
-                            iot_client = create_iot_client()
-                            print("Reconnected to Azure IoT Hub.")
-                        except Exception as exc:
-                            print(f"Azure still unavailable: {exc}")
-                            continue
-
+                    # Send to the deployed app without preventing local collection.
                     try:
-                        send_to_azure(
-                            iot_client,
+                        send_to_app(
                             timestamp_utc,
                             device_name,
                             temp_c,
@@ -215,17 +188,9 @@ def main() -> None:
                             humidity,
                             sensor_ip,
                         )
-                        print(f"Sent Azure telemetry for {device_name}.")
-                    except Exception as exc:
-                        print(f"Azure send failed for {device_name}: {exc}")
-
-                        try:
-                            iot_client.shutdown()
-                        except Exception:
-                            pass
-
-                        # Force a fresh connection attempt on the next reading.
-                        iot_client = None
+                        print(f"Sent reading for {device_name} to the app.")
+                    except requests.RequestException as exc:
+                        print(f"Failed to send reading for {device_name} to the app: {exc}")
 
                 except (OSError, UnicodeDecodeError) as exc:
                     print(f"Error polling {sensor_ip}: {exc}")
@@ -237,13 +202,6 @@ def main() -> None:
 
     except KeyboardInterrupt:
         print("\nStopping sensor logger.")
-
-    finally:
-        if iot_client is not None:
-            try:
-                iot_client.shutdown()
-            except Exception:
-                pass
 
 
 if __name__ == "__main__":

@@ -28,6 +28,10 @@ namespace EnvironmentalMonitor.Services
             _csvPath = Path.Combine(env.ContentRootPath, "wwwroot", "data", "sensor_log.csv");
         }
 
+        /// <summary>Full path to the CSV log file on disk, used for download/export.</summary>
+        public string CsvFilePath => _csvPath;
+
+
         /// <summary>
         /// Appends a single sensor reading to the CSV log in a thread-safe manner,
         /// creating the file (with header) if it does not already exist.
@@ -123,8 +127,43 @@ namespace EnvironmentalMonitor.Services
             return all.Count == 0 ? DateTime.Now : all.Max(r => r.Timestamp);
         }
 
-        public DashboardViewModel BuildDashboard(int hoursBack = 24, int recentRows = 10)
+        /// <summary>
+        /// Builds a summary list of all known sensors, including their sensor type
+        /// (always "DHT-22"), online status, and last-seen timestamp.
+        /// </summary>
+        public List<SensorInfo> GetSensorInfos()
         {
+            var all = GetAll();
+            var asOf = GetAsOf();
+            var list = new List<SensorInfo>();
+
+            foreach (var kv in DeviceMeta)
+            {
+                var latest = all.Where(r => r.Device.Equals(kv.Key, StringComparison.OrdinalIgnoreCase))
+                                 .OrderByDescending(r => r.Timestamp)
+                                 .FirstOrDefault();
+
+                var info = new SensorInfo
+                {
+                    Name = kv.Value.Display,
+                    RawKey = kv.Key,
+                    ColorHex = kv.Value.Color,
+                    SensorType = "DHT-22",
+                    LastSeen = latest?.Timestamp,
+                    Online = latest != null && (asOf - latest.Timestamp).TotalMinutes < 60
+                };
+                list.Add(info);
+            }
+
+            return list
+                .OrderBy(s => s.RawKey == "OUTSIDE" ? 0 : s.RawKey == "UPSTAIRS" ? 1 : 2)
+                .ToList();
+        }
+
+        public DashboardViewModel BuildDashboard(int hoursBack = 24)
+
+        {
+
             var all = GetAll();
             var asOf = GetAsOf();
             var vm = new DashboardViewModel { AsOf = asOf };
@@ -196,11 +235,14 @@ namespace EnvironmentalMonitor.Services
                 vm.HumiditySeries[kv.Value.Display] = hums;
             }
 
-            // ----- Recent readings table -----
+            // ----- Recent readings table (all readings within the same
+            //       hoursBack window used for the charts above, so the
+            //       table and graphs always agree on what "recent" means) -----
             vm.RecentReadings = all
+                .Where(r => r.Timestamp >= windowStart && r.Timestamp <= asOf)
                 .OrderByDescending(r => r.Timestamp)
-                .Take(recentRows)
                 .Select(r =>
+
                 {
                     var meta = DeviceMeta.TryGetValue(r.Device, out var m) ? m : (r.Device, "#6b7280");
                     var online = (asOf - r.Timestamp).TotalMinutes < 60;

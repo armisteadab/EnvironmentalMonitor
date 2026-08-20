@@ -36,6 +36,17 @@ namespace EnvironmentalMonitor.Models
         public bool Online { get; set; }
     }
 
+    public class SensorInfo
+    {
+        public string Name { get; set; } = string.Empty;      // "Outdoor", "Upstairs", "Basement"
+        public string RawKey { get; set; } = string.Empty;    // "OUTSIDE", "UPSTAIRS", "BASEMENT"
+        public string SensorType { get; set; } = "DHT-22";
+        public string ColorHex { get; set; } = "#3b82f6";
+        public bool Online { get; set; }
+        public DateTime? LastSeen { get; set; }
+    }
+
+
     public class DashboardViewModel
     {
         public DateTime AsOf { get; set; }

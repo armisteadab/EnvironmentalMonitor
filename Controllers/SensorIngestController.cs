@@ -9,14 +9,15 @@ namespace EnvironmentalMonitor.Controllers
     /// <summary>
     /// Accepts JSON sensor telemetry over HTTP and appends each reading to the
     /// CSV log used by the dashboard. The accepted JSON shape mirrors the
-    /// payload already produced by wwwroot/data/sensor_logger_azure.py, so
-    /// when this project moves to Azure IoT Hub, a Function/webhook can post
-    /// the same message body here (or this endpoint can be retired entirely).
+    /// payload produced by wwwroot/data/sensor_logger_azure.py, which runs on
+    /// a local machine (on the same LAN as the sensors) and POSTs each
+    /// reading here directly once this app is deployed to Azure.
     ///
     /// Example request:
     ///   POST /api/sensor-ingest
     ///   Content-Type: application/json
     ///   {
+
     ///     "recordedUtc": "2026-05-08T16:48:24.378897Z",
     ///     "deviceId": "UPSTAIRS",
     ///     "temperatureC": 22.5,
