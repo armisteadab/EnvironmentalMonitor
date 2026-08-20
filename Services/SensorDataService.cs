@@ -3,17 +3,16 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Text;
+using EnvironmentalMonitor.Data;
 using EnvironmentalMonitor.Models;
-using Microsoft.Extensions.Hosting;
+using Microsoft.EntityFrameworkCore;
 
 namespace EnvironmentalMonitor.Services
 {
     public class SensorDataService
     {
-        private readonly string _csvPath;
-        private List<SensorReading>? _cache;
-        private DateTime _cacheLoaded = DateTime.MinValue;
-        private readonly object _lock = new();
+        private readonly IDbContextFactory<SensorDbContext> _dbFactory;
 
         public static readonly Dictionary<string, (string Display, string Color)> DeviceMeta =
             new(StringComparer.OrdinalIgnoreCase)
@@ -23,104 +22,37 @@ namespace EnvironmentalMonitor.Services
             { "BASEMENT", ("Basement", "#10b981") }
         };
 
-        public SensorDataService(IHostEnvironment env)
+        public SensorDataService(IDbContextFactory<SensorDbContext> dbFactory)
         {
-            _csvPath = Path.Combine(env.ContentRootPath, "wwwroot", "data", "sensor_log.csv");
+            _dbFactory = dbFactory;
         }
 
-        /// <summary>Full path to the CSV log file on disk, used for download/export.</summary>
-        public string CsvFilePath => _csvPath;
-
-
         /// <summary>
-        /// Appends a single sensor reading to the CSV log in a thread-safe manner,
-        /// creating the file (with header) if it does not already exist.
-        /// The in-memory cache is invalidated so the next read picks up the new row.
+        /// Appends a single sensor reading to the SQLite database. This replaces the
+        /// previous CSV append logic; EF Core / SQLite handle durability and
+        /// concurrent-writer safety for us, so no manual locking is required here.
         /// </summary>
         public void AppendReading(SensorReading reading)
         {
-            lock (_lock)
-            {
-                var dir = Path.GetDirectoryName(_csvPath);
-                if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
-                {
-                    Directory.CreateDirectory(dir);
-                }
-
-                var fileExists = File.Exists(_csvPath);
-
-                using (var writer = new StreamWriter(_csvPath, append: true))
-                {
-                    if (!fileExists)
-                    {
-                        writer.WriteLine("timestamp,device,temp_c,temp_f,humid,ip_of_sensor");
-                    }
-
-                    var line = string.Join(",",
-                        reading.Timestamp.ToString("o", CultureInfo.InvariantCulture),
-                        reading.Device,
-                        reading.TempC.ToString(CultureInfo.InvariantCulture),
-                        reading.TempF.ToString(CultureInfo.InvariantCulture),
-                        reading.Humidity.ToString(CultureInfo.InvariantCulture),
-                        reading.Ip);
-                    writer.WriteLine(line);
-                }
-
-                // Force a reload on the next GetAll() call.
-                _cache = null;
-                _cacheLoaded = DateTime.MinValue;
-            }
+            using var db = _dbFactory.CreateDbContext();
+            db.Readings.Add(reading);
+            db.SaveChanges();
         }
 
-
+        /// <summary>
+        /// Loads every reading from the database. This replaces the previous
+        /// CSV-parsing + file-timestamp-based in-memory cache: SQLite reads are
+        /// fast enough at this data volume that no additional caching layer is
+        /// needed. Everything downstream (BuildDashboard, GetSensorInfos, etc.)
+        /// is unchanged and simply consumes this list.
+        /// </summary>
         public List<SensorReading> GetAll()
         {
-            lock (_lock)
-            {
-                // Reload if the file was modified since last load
-                var lastWrite = File.Exists(_csvPath) ? File.GetLastWriteTimeUtc(_csvPath) : DateTime.MinValue;
-                if (_cache == null || lastWrite > _cacheLoaded)
-                {
-                    _cache = LoadFromDisk();
-                    _cacheLoaded = lastWrite;
-                }
-                return _cache;
-            }
+            using var db = _dbFactory.CreateDbContext();
+            return db.Readings.AsNoTracking().OrderBy(r => r.Timestamp).ToList();
         }
 
-        private List<SensorReading> LoadFromDisk()
-        {
-            var list = new List<SensorReading>();
-            if (!File.Exists(_csvPath)) return list;
-
-            using var reader = new StreamReader(_csvPath);
-            string? line = reader.ReadLine(); // header
-            while ((line = reader.ReadLine()) != null)
-            {
-                if (string.IsNullOrWhiteSpace(line)) continue;
-                var parts = line.Split(',');
-                if (parts.Length < 6) continue;
-
-                if (!DateTime.TryParse(parts[0], CultureInfo.InvariantCulture,
-                        DateTimeStyles.AssumeLocal, out var ts)) continue;
-                if (!double.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out var tc)) continue;
-                if (!double.TryParse(parts[3], NumberStyles.Float, CultureInfo.InvariantCulture, out var tf)) continue;
-                if (!double.TryParse(parts[4], NumberStyles.Float, CultureInfo.InvariantCulture, out var hu)) continue;
-
-                list.Add(new SensorReading
-                {
-                    Timestamp = ts,
-                    Device = parts[1].Trim(),
-                    TempC = tc,
-                    TempF = tf,
-                    Humidity = hu,
-                    Ip = parts[5].Trim()
-                });
-            }
-            return list;
-        }
-
-        /// <summary>The most recent timestamp in the file, used as "now" for the demo dashboard.</summary>
+        /// <summary>The most recent timestamp in the database, used as "now" for the demo dashboard.</summary>
         public DateTime GetAsOf()
         {
             var all = GetAll();
@@ -260,6 +192,73 @@ namespace EnvironmentalMonitor.Services
                 .ToList();
 
             return vm;
+        }
+
+        /// <summary>
+        /// Renders all readings as CSV text, in the same column format as the
+        /// legacy sensor_log.csv file, for the "Data" download link in the sidebar.
+        /// </summary>
+        public string ExportCsv()
+        {
+            var all = GetAll();
+            var sb = new StringBuilder();
+            sb.AppendLine("timestamp,device,temp_c,temp_f,humid,ip_of_sensor");
+            foreach (var r in all)
+            {
+                sb.AppendLine(string.Join(",",
+                    r.Timestamp.ToString("o", CultureInfo.InvariantCulture),
+                    r.Device,
+                    r.TempC.ToString(CultureInfo.InvariantCulture),
+                    r.TempF.ToString(CultureInfo.InvariantCulture),
+                    r.Humidity.ToString(CultureInfo.InvariantCulture),
+                    r.Ip));
+            }
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// One-time migration helper: parses a legacy CSV log file (in the format
+        /// produced by the old CSV-based data store) and bulk-inserts all rows into
+        /// the given database context. Called once at startup (see Program.cs) only
+        /// when the Readings table is empty and a legacy CSV file is present, so
+        /// existing sensor history is preserved when switching to SQLite.
+        /// </summary>
+        public static void ImportCsv(string csvPath, SensorDbContext db)
+        {
+            if (!File.Exists(csvPath)) return;
+
+            var readings = new List<SensorReading>();
+            using (var reader = new StreamReader(csvPath))
+            {
+                string? line = reader.ReadLine(); // header
+                while ((line = reader.ReadLine()) != null)
+                {
+                    if (string.IsNullOrWhiteSpace(line)) continue;
+                    var parts = line.Split(',');
+                    if (parts.Length < 6) continue;
+
+                    if (!DateTime.TryParse(parts[0], CultureInfo.InvariantCulture,
+                            DateTimeStyles.AssumeLocal, out var ts)) continue;
+                    if (!double.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out var tc)) continue;
+                    if (!double.TryParse(parts[3], NumberStyles.Float, CultureInfo.InvariantCulture, out var tf)) continue;
+                    if (!double.TryParse(parts[4], NumberStyles.Float, CultureInfo.InvariantCulture, out var hu)) continue;
+
+                    readings.Add(new SensorReading
+                    {
+                        Timestamp = ts,
+                        Device = parts[1].Trim(),
+                        TempC = tc,
+                        TempF = tf,
+                        Humidity = hu,
+                        Ip = parts[5].Trim()
+                    });
+                }
+            }
+
+            if (readings.Count == 0) return;
+
+            db.Readings.AddRange(readings);
+            db.SaveChanges();
         }
     }
 }

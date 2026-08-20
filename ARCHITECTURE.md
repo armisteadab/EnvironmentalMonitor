@@ -14,7 +14,7 @@ The app is a web dashboard that displays live-ish temperature and humidity readi
 - Simple gauge widgets summarizing the current temperature per sensor.
 - A "Sensors" modal (in the sidebar) listing sensor metadata (type, color, online status, last seen).
 
-Data is not read directly from the sensors by the web app. Instead, a separate Python script running on a machine on the same local network as the sensors polls each sensor and either writes to a local CSV file (dev/local mode) or POSTs the reading to the deployed web app's ingest API (production/Azure mode).
+Data is not read directly from the sensors by the web app. Instead, a separate Python script running on a machine on the same local network as the sensors polls each sensor and either writes to a local CSV file (dev/local mode, for resilience/backup only) or POSTs the reading to the deployed web app's ingest API (production/Azure mode), which persists it into a SQLite database.
 
 ---
 
@@ -37,13 +37,12 @@ Data is not read directly from the sensors by the web app. Instead, a separate P
                                                  │        │                    │
                                                  │        ▼                    │
                                                  │  SensorDataService          │
-                                                 │  (appends to CSV, caches    │
-                                                 │   in memory, builds view    │
-                                                 │   models)                   │
+                                                 │  (writes via EF Core,       │
+                                                 │   builds view models)       │
                                                  │        │                    │
                                                  │        ▼                    │
-                                                 │  wwwroot/data/              │
-                                                 │  sensor_log.csv (data store)│
+                                                 │  App_Data/                  │
+                                                 │  sensor_log.db (SQLite)     │
                                                  │        │                    │
                                                  │        ▼                    │
                                                  │  DashboardController        │
@@ -57,7 +56,7 @@ Data is not read directly from the sensors by the web app. Instead, a separate P
                                                         Browser (dashboard UI)
 ```
 
-Key idea: **the CSV file is the database.** There is no SQL Server / EF Core / external database. This keeps the app extremely simple to deploy (a single Azure App Service, no DB provisioning) at the cost of scalability and query performance — a deliberate tradeoff for a small personal/home project.
+Key idea: **SQLite is the database.** The app uses EF Core with the SQLite provider to persist readings to a single `.db` file (`App_Data/sensor_log.db`) — there is no separate database server / Azure SQL / Cosmos DB to provision. This keeps the app almost as simple to deploy as the original CSV-based design (still a single Azure App Service, no external DB resource, no additional Azure cost) while gaining real indexing, atomic writes, and SQL query capability. (This app previously used a flat CSV file — `wwwroot/data/sensor_log.csv` — as the entire data store; that file is now only used as a one-time historical import source at first startup, see §5.1.)
 
 ---
 
@@ -68,7 +67,8 @@ Key idea: **the CSV file is the database.** There is no SQL Server / EF Core / e
   - Classic MVC pattern (Controllers + Razor Views), not Minimal APIs or Blazor.
   - `Program.cs` uses the modern minimal-hosting-model bootstrap (`WebApplication.CreateBuilder`), but the app itself is structured as traditional MVC (`AddControllersWithViews`, `MapControllerRoute`).
   - Nullable reference types and implicit usings are enabled project-wide.
-- **Dependency Injection**: `SensorDataService` is registered as a **singleton** (`builder.Services.AddSingleton<SensorDataService>()`), since it manages a thread-safe in-memory cache of the CSV data and must be shared across all requests.
+- **Dependency Injection**: `SensorDataService` is registered as a **singleton** (`builder.Services.AddSingleton<SensorDataService>()`). It depends on `IDbContextFactory<SensorDbContext>` (registered via `AddDbContextFactory`) rather than a directly-injected `DbContext`, since EF Core `DbContext` instances are not thread-safe / not meant to be shared across concurrent requests — the factory lets the singleton create a short-lived context per read/write operation.
+- **Database**: **EF Core 10 + `Microsoft.EntityFrameworkCore.Sqlite`** — `Data/SensorDbContext.cs` defines a single `DbSet<SensorReading>` mapped to a `Readings` table, with an index on `(Device, Timestamp)` for the app's main query pattern. `Database.EnsureCreated()` is called once at startup (see `Program.cs`) rather than using EF Migrations, since the schema is simple and unlikely to need versioned migrations for this project's scope.
 
 ### Frontend
 - **Razor Views** (`.cshtml`) render server-side HTML — no SPA framework (no React/Angular/Vue).
@@ -97,27 +97,34 @@ Key idea: **the CSV file is the database.** There is no SQL Server / EF Core / e
 
 ```
 EnvironmentalMonitor/
-├── Program.cs                        # App bootstrap: DI registration, middleware pipeline, routing
+├── Program.cs                        # App bootstrap: DI/DbContextFactory registration, DB setup +
+│                                      #   one-time CSV import, middleware pipeline, routing
+├── Data/
+│   └── SensorDbContext.cs            # EF Core DbContext — Readings table, indexes, model configuration
 ├── Controllers/
 │   ├── DashboardController.cs        # Serves the main dashboard view + /Dashboard/Sensors JSON endpoint
+│   │                                 #   + /Dashboard/DownloadCsv (CSV generated on the fly from SQLite)
 │   ├── SensorIngestController.cs     # POST /api/sensor-ingest — receives readings from the Python logger
 │   └── HomeController.cs             # Default MVC scaffolding (Index/Privacy/Error) — mostly unused/legacy
 ├── Models/
-│   ├── SensorReading.cs              # Core domain models: SensorReading, SensorCard, RecentReadingRow,
-│   │                                 #   SensorInfo, DashboardViewModel
+│   ├── SensorReading.cs              # Core domain models: SensorReading (EF entity, has Id PK), SensorCard,
+│   │                                 #   RecentReadingRow, SensorInfo, DashboardViewModel
 │   ├── SensorIngestRequest.cs        # DTO for the ingest API's JSON payload, with validation attributes
 │   └── ErrorViewModel.cs             # Standard MVC error view model
 ├── Services/
-│   └── SensorDataService.cs          # Core business logic: CSV read/write, caching, dashboard view-model
-│                                      #   construction, sensor status computation
+│   └── SensorDataService.cs          # Core business logic: SQLite read/write via EF Core, CSV export/import
+│                                      #   helpers, dashboard view-model construction, sensor status computation
 ├── Views/
 │   ├── Dashboard/Index.cshtml        # Main dashboard page (cards, charts, table, gauges) + inline JS
 │   ├── Shared/_Layout.cshtml         # App shell: sidebar nav, topbar, Sensors modal, shared scripts
 │   └── Home/...                     # Default scaffolded views (mostly unused)
+├── App_Data/
+│   └── sensor_log.db                 # THE DATA STORE (SQLite) — created at first run; gitignored (runtime data)
 ├── wwwroot/
 │   ├── css/dashboard.css             # Custom dashboard styling
 │   ├── data/
-│   │   ├── sensor_log.csv            # THE DATA STORE — append-only CSV of all readings
+│   │   ├── sensor_log.csv            # LEGACY data store; retained only as a one-time import source for
+│   │   │                             #   historical readings the first time the app starts against a fresh DB
 │   │   ├── sensor_logger.py          # Local-only polling script
 │   │   └── sensor_logger_azure.py    # Production polling script (also POSTs to Azure)
 │   └── lib/                          # Bootstrap, jQuery, jquery-validation (client-side libs)
@@ -132,20 +139,21 @@ EnvironmentalMonitor/
 1. `sensor_logger_azure.py` runs continuously on a machine with LAN access to the sensors.
 2. Every 30 minutes it opens a raw TCP socket to each sensor IP on port 13 and reads a line of text.
 3. The text is parsed via regex into `device`, `temp_c`, `temp_f`, `humidity`.
-4. The reading is appended to a **local CSV backup** first (resilience if the network/app is down).
+4. The reading is appended to a **local CSV backup** first (resilience if the network/app is down — this is purely a local file on the machine running the Python script, unrelated to the web app's own SQLite database).
 5. The reading is then POSTed as JSON to `POST /api/sensor-ingest` on the deployed app.
 6. `SensorIngestController.Post(...)`:
    - Validates the payload (`deviceId` required, model validation via data annotations).
    - Defaults `RecordedUtc` to server time if omitted, and computes `TemperatureF` from `TemperatureC` if not supplied.
    - Builds a `SensorReading` and calls `SensorDataService.AppendReading(...)`.
 7. `SensorDataService.AppendReading(...)`:
-   - Thread-safe (`lock`) append to `wwwroot/data/sensor_log.csv`, creating the file/header if needed.
-   - Invalidates the in-memory cache so the next read reflects the new row.
+   - Opens a short-lived `SensorDbContext` via `IDbContextFactory<SensorDbContext>`, adds the reading, and calls `SaveChanges()`. SQLite/EF Core handle durability and concurrent-writer safety, so no manual locking is required (unlike the old CSV-append code).
+
+**One-time historical import**: On application startup (see `Program.cs`), if the `Readings` table is empty, `SensorDataService.ImportCsv(...)` parses the legacy `wwwroot/data/sensor_log.csv` file (if present) and bulk-inserts every row into SQLite, so switching to the new data store does not lose any previously recorded history. This only runs once — on every subsequent startup the table is non-empty and the import step is skipped.
 
 ### 5.2 Display (read path)
 1. Browser requests `/` (routed to `DashboardController.Index()` via the default MVC route).
-2. `SensorDataService.BuildDashboard(hoursBack: 24, recentRows: 10)`:
-   - Loads all readings from CSV (`GetAll()`), using a **timestamp-based cache** (`_cache` + `_cacheLoaded`) that only re-reads the file from disk if its last-write-time has changed — avoiding re-parsing the CSV on every request.
+2. `SensorDataService.BuildDashboard(hoursBack: 24)`:
+   - Loads all readings from SQLite (`GetAll()`), which opens a short-lived `SensorDbContext` and runs `db.Readings.AsNoTracking().OrderBy(r => r.Timestamp).ToList()`. SQLite reads are fast enough at this data volume that no additional in-memory caching layer is needed (the old CSV version's file-timestamp-based cache has been removed).
    - Determines "now" (`AsOf`) as the **latest timestamp found in the data**, not `DateTime.UtcNow` — this makes the "Online/Offline" status and time windows behave sensibly even with a static/demo dataset.
    - Builds one `SensorCard` per known device (latest reading, online status = last seen < 60 minutes ago relative to `AsOf`).
    - Builds 24-hour time series **bucketed into 30-minute intervals**, averaging readings within each bucket per device (`TempSeries` / `HumiditySeries` dictionaries keyed by display name, with `null` gaps for missing buckets so Chart.js can skip them via `spanGaps`).
@@ -161,9 +169,11 @@ EnvironmentalMonitor/
 
 - **Device keys vs. display names**: Raw sensor identifiers (`OUTSIDE`, `UPSTAIRS`, `BASEMENT`) are mapped to human-friendly display names and colors via `SensorDataService.DeviceMeta`, a static dictionary that is the **single source of truth** for which sensors exist, their display order, and their brand color. Adding a new physical sensor means adding an entry here.
 - **"Online" status is relative, not absolute**: A sensor is considered online if its most recent reading is less than 60 minutes older than `AsOf` (the latest timestamp in the whole dataset) — not compared to the real wall-clock time. This is intentional so the dashboard still looks "correct" against a static/frozen dataset (e.g., a demo or a paused logger) rather than showing everything as offline.
-- **CSV as the data store**: Chosen for simplicity — no database server to provision/manage, human-readable/editable, easy to back up, trivially portable. Tradeoffs: no concurrent-writer safety beyond the in-process `lock` (fine for a single-instance low-traffic app, would need rethinking for scale-out), full file re-read on cache invalidation, no indexing.
-- **In-memory caching with file-timestamp invalidation**: `SensorDataService` avoids re-parsing the CSV on every dashboard load by checking `File.GetLastWriteTimeUtc` against the last time it loaded the cache — a simple, dependency-free caching strategy appropriate for a low-frequency-write workload (one write per sensor per 30 minutes).
+- **SQLite as the data store**: Chosen as a lightweight upgrade from the original CSV design — still no database server to provision/manage or extra Azure cost, but adds real indexing, atomic/durable writes, and the ability to run SQL queries directly against the data if needed later. Tradeoffs versus a hosted database: still a single physical file, so scale-out to multiple app instances would require moving to a shared database (see below); no built-in replication/backup beyond whatever file-level backup strategy is used for the App Service.
+- **No manual caching layer needed**: The old CSV design needed a hand-rolled cache invalidated by `File.GetLastWriteTimeUtc` to avoid re-parsing a growing text file on every request. SQLite (via EF Core) is fast enough at this data volume to query directly on every call to `GetAll()`, so that caching layer has been removed entirely — one less thing to maintain/get out of sync.
+- **Azure persistent storage for the `.db` file**: `Program.cs` places `sensor_log.db` under the `HOME` environment variable's `App_Data` folder when running on Azure App Service (a location that survives redeploys), and under a local `App_Data` folder at the project root otherwise. This is actually *safer* than the original design, which stored `sensor_log.csv` inside `wwwroot/data/` — a location that is both publicly web-accessible as a static file and more likely to be overwritten by a fresh deploy.
 - **Local-first, cloud-second ingestion**: The Python logger always writes locally first, then attempts to send to Azure — so a network hiccup or app downtime never causes data loss at the source; only the "live" cloud dashboard would show a gap until the logger catches up (there's currently no backfill/replay mechanism for missed POSTs, which would be a good enhancement).
+- **One-time CSV→SQLite migration, not an ongoing dependency**: The legacy CSV file is only ever read once (at first startup against an empty database) via `SensorDataService.ImportCsv(...)`. After that, the CSV file is no longer touched by the web app at all — it's inert legacy history that could eventually be deleted/archived once you've confirmed the SQLite database has everything it needs.
 
 ---
 
@@ -182,10 +192,10 @@ EnvironmentalMonitor/
 
 This application is a deliberately lightweight, dependency-minimal home telemetry dashboard:
 
-- **Backend**: ASP.NET Core MVC (.NET 10), a single singleton service (`SensorDataService`) doing CSV I/O + in-memory caching + view-model shaping, and a small JSON ingest API.
+- **Backend**: ASP.NET Core MVC (.NET 10), a single singleton service (`SensorDataService`) doing SQLite I/O via EF Core + view-model shaping, and a small JSON ingest API.
 - **Frontend**: Server-rendered Razor views styled with Bootstrap + custom CSS, with Chart.js for time-series charts and hand-rolled Canvas gauges — no SPA framework.
-- **Data store**: A flat, append-only CSV file (`wwwroot/data/sensor_log.csv`) acting as the entire "database."
-- **Ingestion**: An external Python script polls ESP32/DHT-22 sensors over raw TCP sockets on the local network and forwards readings to the app's `/api/sensor-ingest` endpoint (with a local CSV backup for resilience).
-- **Deployment**: Published directly to an Azure App Service via a Web Deploy publish profile — no containers, no database server, no external dependencies beyond the CDN-hosted Chart.js script.
+- **Data store**: A single SQLite database file (`App_Data/sensor_log.db`), accessed via EF Core (`Microsoft.EntityFrameworkCore.Sqlite`) through an `IDbContextFactory<SensorDbContext>` — the entire "database," still requiring no external DB server or extra Azure cost. The original flat CSV file (`wwwroot/data/sensor_log.csv`) has been retired to a one-time historical-import source, consumed only the first time the app starts against an empty database.
+- **Ingestion**: An external Python script polls ESP32/DHT-22 sensors over raw TCP sockets on the local network and forwards readings to the app's `/api/sensor-ingest` endpoint (with a local CSV backup on the polling machine for resilience, separate from the app's own SQLite store).
+- **Deployment**: Published directly to an Azure App Service via a Web Deploy publish profile — no containers, no separate database server, no external dependencies beyond the CDN-hosted Chart.js script. The SQLite file is placed under Azure's persistent `HOME/App_Data` path so it survives redeploys.
 
-The overall design favors **simplicity and low operational overhead** over scalability or robustness — appropriate for its scope as a small number of home sensors reporting on a 30-minute cadence.
+The overall design favors **simplicity and low operational overhead** over scalability or robustness — appropriate for its scope as a small number of home sensors reporting on a 30-minute cadence. Moving from CSV to SQLite was a low-risk, surgical upgrade: only the storage layer inside `SensorDataService` changed (`GetAll()` / `AppendReading()`), while all of the dashboard's aggregation, bucketing, and view-model-shaping logic was left completely untouched.

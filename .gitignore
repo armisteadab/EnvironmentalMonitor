@@ -266,6 +266,13 @@ ServiceFabricBackup/
 *.ldf
 *.ndf
 
+# SQLite database files (runtime data store - not source controlled)
+App_Data/
+*.db
+*.db-shm
+*.db-wal
+
+
 # Business Intelligence projects
 *.rdl.data
 *.bim.layout

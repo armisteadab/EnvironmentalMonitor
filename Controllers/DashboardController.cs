@@ -32,20 +32,17 @@ namespace EnvironmentalMonitor.Controllers
         }
 
         /// <summary>
-        /// Streams the full sensor log CSV file as a download, used by the
-        /// "Data" link in the sidebar.
+        /// Generates a CSV export of all sensor readings from the SQLite database
+        /// on the fly, used by the "Data" link in the sidebar. (Previously this
+        /// streamed the raw sensor_log.csv file directly; now the CSV is
+        /// produced dynamically from the database.)
         /// </summary>
         [HttpGet]
         public IActionResult DownloadCsv()
         {
-            var path = _dataService.CsvFilePath;
-            if (!System.IO.File.Exists(path))
-            {
-                return NotFound("No sensor data has been recorded yet.");
-            }
-
-            var stream = new System.IO.FileStream(path, System.IO.FileMode.Open, System.IO.FileAccess.Read, System.IO.FileShare.ReadWrite);
-            return base.File(stream, "text/csv", "sensor_log.csv");
+            var csv = _dataService.ExportCsv();
+            var bytes = System.Text.Encoding.UTF8.GetBytes(csv);
+            return base.File(bytes, "text/csv", "sensor_log.csv");
         }
 
     }
