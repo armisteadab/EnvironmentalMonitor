@@ -31,13 +31,32 @@ namespace EnvironmentalMonitor.Services
         /// Appends a single sensor reading to the SQLite database. This replaces the
         /// previous CSV append logic; EF Core / SQLite handle durability and
         /// concurrent-writer safety for us, so no manual locking is required here.
+        ///
+        /// Before inserting, checks whether a reading already exists for the same
+        /// device + timestamp. Duplicate telemetry can arrive from the sensor
+        /// logger (e.g. a retry after a timed-out response whose request actually
+        /// succeeded server-side), and since there's no unique DB constraint on
+        /// (Device, Timestamp) to reject them automatically, we guard against it
+        /// explicitly here instead. Returns false (and skips the insert) if a
+        /// matching reading is already present; returns true if the new reading
+        /// was saved.
         /// </summary>
-        public void AppendReading(SensorReading reading)
+        public bool AppendReading(SensorReading reading)
         {
             using var db = _dbFactory.CreateDbContext();
+
+            var isDuplicate = db.Readings.Any(r =>
+                r.Device == reading.Device && r.Timestamp == reading.Timestamp);
+            if (isDuplicate)
+            {
+                return false;
+            }
+
             db.Readings.Add(reading);
             db.SaveChanges();
+            return true;
         }
+
 
         /// <summary>
         /// Loads every reading from the database. This replaces the previous
@@ -80,7 +99,7 @@ namespace EnvironmentalMonitor.Services
                     Name = kv.Value.Display,
                     RawKey = kv.Key,
                     ColorHex = kv.Value.Color,
-                    SensorType = "DHT-22",
+                    SensorType = kv.Key.Equals("OUTSIDE", StringComparison.OrdinalIgnoreCase) ? "SCD41" : "DHT-22",
                     LastSeen = latest?.Timestamp,
                     Online = latest != null && (asOf - latest.Timestamp).TotalMinutes < 60
                 };
@@ -117,7 +136,8 @@ namespace EnvironmentalMonitor.Services
                     Humidity = latest.Humidity,
                     Online = online,
                     ColorHex = kv.Value.Color,
-                    Timestamp = latest.Timestamp
+                    Timestamp = latest.Timestamp,
+                    Co2 = latest.Co2
                 });
             }
 
@@ -165,7 +185,23 @@ namespace EnvironmentalMonitor.Services
                 }
                 vm.TempSeries[kv.Value.Display] = temps;
                 vm.HumiditySeries[kv.Value.Display] = hums;
+
+                // Outdoor-only CO2 series, bucketed the same way as temp/humidity.
+                if (kv.Key.Equals("OUTSIDE", StringComparison.OrdinalIgnoreCase))
+                {
+                    var co2s = new List<double?>();
+                    foreach (var b in buckets)
+                    {
+                        var bEnd = b.AddMinutes(bucketMinutes);
+                        var group = deviceReadings
+                            .Where(r => r.Timestamp >= b && r.Timestamp < bEnd && r.Co2.HasValue)
+                            .ToList();
+                        co2s.Add(group.Count == 0 ? (double?)null : Math.Round(group.Average(r => r.Co2!.Value), 1));
+                    }
+                    vm.OutsideCo2Series = co2s;
+                }
             }
+
 
             // ----- Recent readings table (all readings within the same
             //       hoursBack window used for the charts above, so the
@@ -186,7 +222,8 @@ namespace EnvironmentalMonitor.Services
                         TempF = r.TempF,
                         TempC = r.TempC,
                         Humidity = r.Humidity,
-                        Online = online
+                        Online = online,
+                        Co2 = r.Co2
                     };
                 })
                 .ToList();
@@ -202,7 +239,7 @@ namespace EnvironmentalMonitor.Services
         {
             var all = GetAll();
             var sb = new StringBuilder();
-            sb.AppendLine("timestamp,device,temp_c,temp_f,humid,ip_of_sensor");
+            sb.AppendLine("timestamp,device,temp_c,temp_f,humid,ip_of_sensor,co2");
             foreach (var r in all)
             {
                 sb.AppendLine(string.Join(",",
@@ -211,8 +248,10 @@ namespace EnvironmentalMonitor.Services
                     r.TempC.ToString(CultureInfo.InvariantCulture),
                     r.TempF.ToString(CultureInfo.InvariantCulture),
                     r.Humidity.ToString(CultureInfo.InvariantCulture),
-                    r.Ip));
+                    r.Ip,
+                    r.Co2.HasValue ? r.Co2.Value.ToString(CultureInfo.InvariantCulture) : string.Empty));
             }
+
             return sb.ToString();
         }
 
@@ -243,6 +282,14 @@ namespace EnvironmentalMonitor.Services
                     if (!double.TryParse(parts[3], NumberStyles.Float, CultureInfo.InvariantCulture, out var tf)) continue;
                     if (!double.TryParse(parts[4], NumberStyles.Float, CultureInfo.InvariantCulture, out var hu)) continue;
 
+                    // co2 is an optional trailing column (added after the CSV format was
+                    // originally defined), so older rows without it just import as null.
+                    double? co2 = null;
+                    if (parts.Length > 6 && double.TryParse(parts[6], NumberStyles.Float, CultureInfo.InvariantCulture, out var co2Val))
+                    {
+                        co2 = co2Val;
+                    }
+
                     readings.Add(new SensorReading
                     {
                         Timestamp = ts,
@@ -250,8 +297,10 @@ namespace EnvironmentalMonitor.Services
                         TempC = tc,
                         TempF = tf,
                         Humidity = hu,
-                        Ip = parts[5].Trim()
+                        Ip = parts[5].Trim(),
+                        Co2 = co2
                     });
+
                 }
             }
 

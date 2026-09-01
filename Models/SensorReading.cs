@@ -13,7 +13,10 @@ namespace EnvironmentalMonitor.Models
         public double TempF { get; set; }
         public double Humidity { get; set; }
         public string Ip { get; set; } = string.Empty;
+        /// <summary>CO2 concentration in ppm. Nullable since not all sensors report it (yet).</summary>
+        public double? Co2 { get; set; }
     }
+
 
     public class SensorCard
     {
@@ -25,6 +28,8 @@ namespace EnvironmentalMonitor.Models
         public bool Online { get; set; }
         public string ColorHex { get; set; } = "#3b82f6";
         public DateTime Timestamp { get; set; }
+        /// <summary>CO2 (ppm), if this sensor reports it (currently only Outdoor). Null otherwise.</summary>
+        public double? Co2 { get; set; }
     }
 
     public class RecentReadingRow
@@ -36,6 +41,8 @@ namespace EnvironmentalMonitor.Models
         public double TempC { get; set; }
         public double Humidity { get; set; }
         public bool Online { get; set; }
+        /// <summary>CO2 (ppm), if this reading includes it (currently only Outdoor). Null otherwise.</summary>
+        public double? Co2 { get; set; }
     }
 
     public class SensorInfo
@@ -57,5 +64,14 @@ namespace EnvironmentalMonitor.Models
         public Dictionary<string, List<double?>> TempSeries { get; set; } = new();
         public Dictionary<string, List<double?>> HumiditySeries { get; set; } = new();
         public List<RecentReadingRow> RecentReadings { get; set; } = new();
+
+        /// <summary>
+        /// CO2 (ppm) time series for the Outdoor sensor only, bucketed the same way
+        /// as TempSeries/HumiditySeries. Only "Outdoor" is tracked here (per the
+        /// dashboard's CO2 chart), rather than a per-device dictionary like the
+        /// temp/humidity series, since currently only the outdoor sensor reports CO2.
+        /// </summary>
+        public List<double?> OutsideCo2Series { get; set; } = new();
     }
+
 }

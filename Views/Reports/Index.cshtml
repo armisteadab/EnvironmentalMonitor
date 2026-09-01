@@ -1,0 +1,221 @@
+@model EnvironmentalMonitor.Models.ReportsIndexViewModel
+@{
+    ViewData["Title"] = "Reports";
+    ViewData["HeaderTime"] = DateTime.Now.ToString("MMM d, yyyy  h:mm tt");
+}
+
+<div class="dash-row row-bottom">
+    <div class="card-panel table-panel" style="flex: 1 1 320px; max-width: 340px;">
+        <h3>Past Reports</h3>
+        <ul class="sensors-list" id="conversationList" style="max-height: 520px; overflow-y: auto;">
+            @if (Model.Conversations.Count == 0)
+            {
+                <li class="sensors-empty">No reports yet. Start a new chat to create one.</li>
+            }
+            else
+            {
+                foreach (var c in Model.Conversations)
+                {
+                    <li class="sensor-list-item" style="cursor:pointer; display:flex; align-items:center; justify-content:space-between; gap:8px;" data-conversation-id="@c.Id">
+                        <span style="overflow:hidden;">
+                            <span class="sensor-list-name">@c.Title</span>
+                            <span class="sensor-list-type">@c.UpdatedAt.ToString("MMM d, h:mm tt")</span>
+                        </span>
+                        <button type="button" class="btn btn-sm btn-outline-danger delete-conversation-btn" data-conversation-id="@c.Id" data-conversation-title="@c.Title">Delete</button>
+                    </li>
+                }
+            }
+        </ul>
+        <button type="button" class="btn btn-sm btn-primary mt-2" id="newConversationBtn">+ New Report</button>
+    </div>
+
+    <div class="card-panel chart-panel" style="flex: 2 1 480px;">
+        <div class="chart-panel-head">
+            <h3>AI Report Assistant</h3>
+        </div>
+        <div id="chatWindow" style="height: 420px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 6px; padding: 12px; margin-bottom: 12px; background: #f8fafc;">
+            <div class="chat-empty" id="chatEmptyState">Ask the assistant to summarize recent sensor data into a report, e.g. "Write a summary of temperature and humidity trends this week."</div>
+        </div>
+        <div class="d-flex" style="gap: 8px;">
+            <input type="text" id="chatInput" class="form-control" placeholder="Ask for a report..." />
+            <button type="button" class="btn btn-primary" id="sendBtn">Send</button>
+        </div>
+        <div class="mt-2">
+            <button type="button" class="btn btn-outline-secondary btn-sm" id="downloadBtn" disabled>Download report as .txt</button>
+        </div>
+    </div>
+</div>
+
+<!-- ===================== Delete Report Confirm Modal ===================== -->
+<div class="modal fade" id="deleteConversationModal" tabindex="-1" aria-labelledby="deleteConversationModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="deleteConversationModalLabel">Delete Report</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                Are you sure you want to delete "<span id="deleteConversationTitle"></span>"? This cannot be undone.
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger" id="confirmDeleteConversationBtn">Delete</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        (function () {
+            var chatWindow = document.getElementById('chatWindow');
+            var chatEmptyState = document.getElementById('chatEmptyState');
+            var chatInput = document.getElementById('chatInput');
+            var sendBtn = document.getElementById('sendBtn');
+            var downloadBtn = document.getElementById('downloadBtn');
+            var newConversationBtn = document.getElementById('newConversationBtn');
+            var conversationList = document.getElementById('conversationList');
+            var deleteConversationModalEl = document.getElementById('deleteConversationModal');
+            var deleteConversationTitle = document.getElementById('deleteConversationTitle');
+            var confirmDeleteConversationBtn = document.getElementById('confirmDeleteConversationBtn');
+
+            var currentConversationId = null;
+            var conversationIdPendingDelete = null;
+
+            function appendMessage(role, content) {
+                if (chatEmptyState) { chatEmptyState.style.display = 'none'; }
+                var bubble = document.createElement('div');
+                bubble.style.marginBottom = '10px';
+                bubble.style.textAlign = role === 'user' ? 'right' : 'left';
+                var inner = document.createElement('span');
+                inner.style.display = 'inline-block';
+                inner.style.padding = '8px 12px';
+                inner.style.borderRadius = '10px';
+                inner.style.maxWidth = '80%';
+                inner.style.whiteSpace = 'pre-wrap';
+                inner.style.background = role === 'user' ? '#3b82f6' : '#e2e8f0';
+                inner.style.color = role === 'user' ? '#fff' : '#1e293b';
+                inner.textContent = content;
+                bubble.appendChild(inner);
+                chatWindow.appendChild(bubble);
+                chatWindow.scrollTop = chatWindow.scrollHeight;
+            }
+            function resetChat() {
+                currentConversationId = null;
+                chatWindow.innerHTML = '';
+                chatWindow.appendChild(chatEmptyState);
+                chatEmptyState.style.display = 'block';
+                downloadBtn.disabled = true;
+            }
+
+            function loadConversation(id) {
+                fetch('/Reports/Conversation?id=' + id)
+                    .then(function (resp) { if (!resp.ok) throw new Error('Not found'); return resp.json(); })
+                    .then(function (data) {
+                        currentConversationId = data.id;
+                        chatWindow.innerHTML = '';
+                        (data.messages || []).forEach(function (m) { appendMessage(m.role, m.content); });
+                        downloadBtn.disabled = !(data.messages || []).some(function (m) { return m.role === 'assistant'; });
+                    })
+                    .catch(function () {
+                        appendMessage('assistant', 'Unable to load that conversation.');
+                    });
+            }
+
+            function sendMessage() {
+                var text = chatInput.value.trim();
+                if (!text) return;
+                appendMessage('user', text);
+                chatInput.value = '';
+                sendBtn.disabled = true;
+
+                fetch('/Reports/Send', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ conversationId: currentConversationId, message: text })
+                })
+                    .then(function (resp) {
+                        if (!resp.ok) throw new Error('Request failed');
+                        return resp.json();
+                    })
+                    .then(function (data) {
+                        currentConversationId = data.conversationId;
+                        appendMessage('assistant', data.reply);
+                        downloadBtn.disabled = false;
+                    })
+                    .catch(function () {
+                        appendMessage('assistant', 'Sorry, something went wrong sending that message.');
+                    })
+                    .finally(function () {
+                        sendBtn.disabled = false;
+                    });
+            }
+
+            sendBtn.addEventListener('click', sendMessage);
+            chatInput.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter') { sendMessage(); }
+            });
+
+            newConversationBtn.addEventListener('click', resetChat);
+
+            conversationList.addEventListener('click', function (e) {
+                var deleteBtn = e.target.closest('.delete-conversation-btn');
+                if (deleteBtn) {
+                    conversationIdPendingDelete = deleteBtn.getAttribute('data-conversation-id');
+                    deleteConversationTitle.textContent = deleteBtn.getAttribute('data-conversation-title') || '';
+                    bootstrap.Modal.getOrCreateInstance(deleteConversationModalEl).show();
+                    return;
+                }
+                var item = e.target.closest('[data-conversation-id]');
+                if (!item) return;
+                loadConversation(item.getAttribute('data-conversation-id'));
+            });
+
+            confirmDeleteConversationBtn.addEventListener('click', function () {
+                if (!conversationIdPendingDelete) return;
+                var idToDelete = conversationIdPendingDelete;
+                confirmDeleteConversationBtn.disabled = true;
+
+                fetch('/Reports/Delete?id=' + encodeURIComponent(idToDelete), {
+                    method: 'POST'
+                })
+                    .then(function (resp) { if (!resp.ok) throw new Error('Request failed'); return resp.json(); })
+                    .then(function () {
+                        var item = conversationList.querySelector('[data-conversation-id="' + idToDelete + '"]');
+                        if (item) { item.remove(); }
+                        if (!conversationList.querySelector('[data-conversation-id]')) {
+                            conversationList.innerHTML = '<li class="sensors-empty">No reports yet. Start a new chat to create one.</li>';
+                        }
+                        if (String(currentConversationId) === String(idToDelete)) {
+                            resetChat();
+                        }
+                        bootstrap.Modal.getOrCreateInstance(deleteConversationModalEl).hide();
+                    })
+                    .catch(function () {
+                        alert('Unable to delete that report right now. Please try again.');
+                    })
+                    .finally(function () {
+                        confirmDeleteConversationBtn.disabled = false;
+                        conversationIdPendingDelete = null;
+                    });
+            });
+
+            downloadBtn.addEventListener('click', function () {
+                if (!currentConversationId) return;
+                fetch('/Reports/GenerateDownload', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ conversationId: currentConversationId })
+                })
+                    .then(function (resp) { if (!resp.ok) throw new Error('failed'); return resp.json(); })
+                    .then(function (data) {
+                        window.location.href = '/Reports/Download?id=' + data.reportId;
+                    })
+                    .catch(function () {
+                        appendMessage('assistant', 'Unable to generate the download right now.');
+                    });
+            });
+        })();
+    </script>
+}
+

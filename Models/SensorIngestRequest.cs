@@ -29,5 +29,9 @@ namespace EnvironmentalMonitor.Models
 
         /// <summary>Optional. IP address (or other identifier) of the originating sensor.</summary>
         public string? SensorIp { get; set; }
+
+        /// <summary>Optional. CO2 concentration in ppm, for sensors that report it.</summary>
+        public double? Co2 { get; set; }
     }
+
 }

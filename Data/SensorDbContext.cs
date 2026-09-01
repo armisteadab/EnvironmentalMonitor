@@ -22,6 +22,11 @@ namespace EnvironmentalMonitor.Data
 
         public DbSet<SensorReading> Readings => Set<SensorReading>();
 
+        /// <summary>AI-report chat conversations (see Views/Reports and ReportingService).</summary>
+        public DbSet<ReportConversation> ReportConversations => Set<ReportConversation>();
+        public DbSet<ReportMessage> ReportMessages => Set<ReportMessage>();
+        public DbSet<GeneratedReport> GeneratedReports => Set<GeneratedReport>();
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             modelBuilder.Entity<SensorReading>(entity =>
@@ -33,6 +38,37 @@ namespace EnvironmentalMonitor.Data
 
                 // Most queries filter/sort by device + time window, so index on both.
                 entity.HasIndex(r => new { r.Device, r.Timestamp });
+            });
+
+            modelBuilder.Entity<ReportConversation>(entity =>
+            {
+                entity.ToTable("ReportConversations");
+                entity.HasKey(c => c.Id);
+                entity.Property(c => c.Title).IsRequired().HasMaxLength(200);
+            });
+
+            modelBuilder.Entity<ReportMessage>(entity =>
+            {
+                entity.ToTable("ReportMessages");
+                entity.HasKey(m => m.Id);
+                entity.Property(m => m.Role).IsRequired().HasMaxLength(16);
+                entity.HasIndex(m => m.ConversationId);
+                entity.HasOne(m => m.Conversation)
+                    .WithMany(c => c.Messages)
+                    .HasForeignKey(m => m.ConversationId)
+                    .OnDelete(DeleteBehavior.Cascade);
+            });
+
+            modelBuilder.Entity<GeneratedReport>(entity =>
+            {
+                entity.ToTable("GeneratedReports");
+                entity.HasKey(g => g.Id);
+                entity.Property(g => g.FileName).IsRequired().HasMaxLength(256);
+                entity.HasIndex(g => g.ConversationId);
+                entity.HasOne(g => g.Conversation)
+                    .WithMany(c => c.GeneratedReports)
+                    .HasForeignKey(g => g.ConversationId)
+                    .OnDelete(DeleteBehavior.Cascade);
             });
         }
     }

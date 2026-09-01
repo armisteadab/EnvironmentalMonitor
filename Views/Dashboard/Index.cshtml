@@ -49,7 +49,8 @@
     </div>
 </div>
 
-<!-- ===================== Row 3: Recent Readings + Gauges ===================== -->
+<!-- ===================== Row 3: Recent Readings + Outdoor CO2 Chart ===================== -->
+
 <div class="dash-row row-bottom">
     <div class="card-panel table-panel">
         <h3>Recent Readings (Last 24 Hours)</h3>
@@ -84,19 +85,13 @@
     </div>
 
 
-    <div class="card-panel gauge-panel">
-        <h3>Temperature Summary (&deg;F)</h3>
-        <div class="gauge-grid">
-            @foreach (var card in Model.Cards)
-            {
-                <div class="gauge-item">
-                    <div class="gauge-label">@card.Name</div>
-                    <canvas class="gauge-canvas" data-value="@card.TempF" data-color="@card.ColorHex" width="140" height="90"></canvas>
-                    <div class="gauge-value" style="color:@card.ColorHex;">@card.TempF.ToString("0") &deg;F</div>
-                </div>
-            }
+    <div class="card-panel chart-panel">
+        <div class="chart-panel-head">
+            <h3>Outdoor CO&#8322; (ppm) - Last 24 Hours</h3>
         </div>
+        <canvas id="co2Chart"></canvas>
     </div>
+
 </div>
 
 @section Scripts {
@@ -104,6 +99,8 @@
         const chartLabels = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.ChartLabels));
         const tempSeries = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.TempSeries));
         const humSeries = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.HumiditySeries));
+        const outsideCo2Series = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.OutsideCo2Series));
+
 
 
         const colors = {
@@ -153,61 +150,32 @@
             }
         });
 
-        // ---- Simple gauge drawing (min 32F, max 104F like the reference) ----
-        document.querySelectorAll('.gauge-canvas').forEach(canvas => {
-            const ctx = canvas.getContext('2d');
-            const value = parseFloat(canvas.dataset.value);
-            const color = canvas.dataset.color;
-            const min = 32, max = 104;
-            const w = canvas.width, h = canvas.height;
-            const cx = w / 2, cy = h - 10, r = Math.min(w / 2 - 10, h - 20);
-
-            const startAngle = Math.PI; // 180deg (left)
-            const endAngle = 0; // 0deg (right)
-            const pct = Math.max(0, Math.min(1, (value - min) / (max - min)));
-            // Sweep over the TOP of the dial (through 270deg) instead of straight
-            // across the bottom, so the needle points up into the gauge at 50%.
-            const valueAngle = startAngle + Math.PI * pct;
-
-
-            ctx.clearRect(0, 0, w, h);
-
-            // background arc
-            ctx.beginPath();
-            ctx.arc(cx, cy, r, startAngle, endAngle, false);
-            ctx.lineWidth = 10;
-            ctx.strokeStyle = '#e6e9ef';
-            ctx.stroke();
-
-            // value arc
-            ctx.beginPath();
-            ctx.arc(cx, cy, r, startAngle, valueAngle, false);
-            ctx.lineWidth = 10;
-            ctx.strokeStyle = color;
-            ctx.lineCap = 'round';
-            ctx.stroke();
-
-            // needle
-            ctx.beginPath();
-            ctx.moveTo(cx, cy);
-            ctx.lineTo(cx + (r - 14) * Math.cos(valueAngle), cy + (r - 14) * Math.sin(valueAngle));
-            ctx.lineWidth = 2;
-            ctx.strokeStyle = '#1f2937';
-            ctx.stroke();
-
-            ctx.beginPath();
-            ctx.arc(cx, cy, 3, 0, 2 * Math.PI);
-            ctx.fillStyle = '#1f2937';
-            ctx.fill();
-
-            // min/max labels
-            ctx.fillStyle = '#6b7280';
-            ctx.font = '9px sans-serif';
-            ctx.textAlign = 'left';
-            ctx.fillText(min + '\u00B0', cx - r - 4, cy + 12);
-            ctx.textAlign = 'right';
-            ctx.fillText(max + '\u00B0', cx + r + 4, cy + 12);
+        new Chart(document.getElementById('co2Chart'), {
+            type: 'line',
+            data: {
+                labels: chartLabels,
+                datasets: [{
+                    label: 'Outdoor',
+                    data: outsideCo2Series,
+                    borderColor: colors['Outdoor'],
+                    backgroundColor: colors['Outdoor'],
+                    spanGaps: true,
+                    tension: 0.3,
+                    pointRadius: 2,
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                interaction: { mode: 'index', intersect: false },
+                plugins: { legend: { position: 'top', align: 'start' } },
+                scales: {
+                    x: { ticks: { maxTicksLimit: 8 } },
+                    y: { title: { display: false } }
+                }
+            }
         });
+
 
         // ---- Auto-reload the dashboard every 5 minutes ----
         setTimeout(function () {

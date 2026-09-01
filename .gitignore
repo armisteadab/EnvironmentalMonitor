@@ -272,6 +272,12 @@ App_Data/
 *.db-shm
 *.db-wal
 
+# Local development secrets (Azure OpenAI API key, etc.) - never commit these.
+# Real values live only on each developer's machine; appsettings.json keeps
+# empty placeholders for the shape of the config so the app still runs (with
+# the Reports/AI feature disabled) without this file present.
+appsettings.Development.json
+
 
 # Business Intelligence projects
 *.rdl.data

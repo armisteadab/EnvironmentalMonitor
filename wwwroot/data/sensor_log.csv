@@ -1,4 +1,4 @@
-timestamp,device,temp_c,temp_f,humid,ip_of_sensor
+﻿timestamp,device,temp_c,temp_f,humid,ip_of_sensor,co2
 2026-05-08T16:48:24.378897,UPSTAIRS,22.5,72.5,60.2,10.0.0.108
 2026-05-08T16:48:25.008776,BASEMENT,19.1,66.4,68.4,10.0.0.38
 2026-05-08T16:48:25.637240,OUTSIDE,23.1,73.6,33.4,10.0.0.173

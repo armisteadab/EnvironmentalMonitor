@@ -22,12 +22,12 @@
                     <span class="nav-icon">&#128225;</span> Sensors
                 </a>
 
-                <a class="nav-item" href="/Dashboard/DownloadCsv" download>
+                <a class="nav-item" href="#" id="downloadDataNavLink" data-bs-toggle="modal" data-bs-target="#downloadDataModal">
                     <span class="nav-icon">&#128203;</span> Data
                 </a>
 
-                <a class="nav-item" href="#">
-                    <span class="nav-icon">&#128200;</span> Charts
+                <a class="nav-item" href="/Reports">
+                    <span class="nav-icon">&#128200;</span> AI Report Chat
                 </a>
                 <a class="nav-item" href="#">
                     <span class="nav-icon">&#128276;</span> Alerts
@@ -49,7 +49,7 @@
             <header class="topbar">
                 <div class="topbar-title">@ViewData["Title"]</div>
                 <div class="topbar-right">
-                    <span class="topbar-time">@ViewData["HeaderTime"]</span>
+                    <span class="topbar-time">Last Data Received: @ViewData["HeaderTime"]</span>
                     <span class="topbar-user">&#128100; guest &#9662;</span>
 
                 </div>
@@ -62,6 +62,27 @@
             <footer class="app-footer">
                 &copy; 2026 ESP32 Environmental Monitor &nbsp;|&nbsp; Built with ASP.NET Core MVC &nbsp;|&nbsp; Data updated every 30 seconds
             </footer>
+        </div>
+    </div>
+
+    <!-- ===================== Download Data Confirm Modal ===================== -->
+    <div class="modal fade" id="downloadDataModal" tabindex="-1" aria-labelledby="downloadDataModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="downloadDataModalLabel">
+                        <span class="nav-icon">&#128203;</span> Download Data
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    Are you sure you want to download all sensor data as a CSV file?
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <a href="/Dashboard/DownloadCsv" download id="downloadCsvBtn" class="btn btn-primary">Download</a>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -88,6 +109,24 @@
     <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <script>
+        (function () {
+            // Bootstrap's [data-bs-dismiss="modal"] click handler calls
+            // event.preventDefault() on <a> elements before hiding the modal,
+            // which blocks the browser's normal navigation/download for the
+            // Download link. Instead, close the modal manually shortly after
+            // the click so the download request is allowed to proceed first.
+            var downloadBtn = document.getElementById('downloadCsvBtn');
+            var downloadDataModalEl = document.getElementById('downloadDataModal');
+            if (downloadBtn && downloadDataModalEl) {
+                downloadBtn.addEventListener('click', function () {
+                    setTimeout(function () {
+                        var modal = bootstrap.Modal.getOrCreateInstance(downloadDataModalEl);
+                        modal.hide();
+                    }, 150);
+                });
+            }
+        })();
+
         (function () {
             var sensorsModalEl = document.getElementById('sensorsModal');
             if (!sensorsModalEl) return;

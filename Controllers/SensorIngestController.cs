@@ -23,9 +23,11 @@ namespace EnvironmentalMonitor.Controllers
     ///     "temperatureC": 22.5,
     ///     "temperatureF": 72.5,
     ///     "humidity": 60.2,
-    ///     "sensorIp": "10.0.0.108"
+    ///     "sensorIp": "10.0.0.108",
+    ///     "co2": 812.0
     ///   }
     /// </summary>
+
     [ApiController]
     [Route("api/sensor-ingest")]
     public class SensorIngestController : ControllerBase
@@ -65,24 +67,46 @@ namespace EnvironmentalMonitor.Controllers
                 TempC = request.TemperatureC,
                 TempF = Math.Round(tempF, 2),
                 Humidity = request.Humidity,
-                Ip = request.SensorIp ?? string.Empty
+                Ip = request.SensorIp ?? string.Empty,
+                Co2 = request.Co2
             };
 
-            _dataService.AppendReading(reading);
+
+            var wasSaved = _dataService.AppendReading(reading);
+
+            var saved = new
+            {
+                timestamp = reading.Timestamp.ToString("o", CultureInfo.InvariantCulture),
+                device = reading.Device,
+                tempC = reading.TempC,
+                tempF = reading.TempF,
+                humidity = reading.Humidity,
+                ip = reading.Ip,
+                co2 = reading.Co2
+            };
+
+
+            if (!wasSaved)
+            {
+                // A reading for this device + timestamp already exists. Treat this
+                // as an idempotent no-op rather than an error, since duplicate
+                // telemetry can legitimately arrive from the sensor logger (e.g. a
+                // retry after a timed-out response whose request actually
+                // succeeded server-side).
+                return Ok(new
+                {
+                    status = "duplicate",
+                    message = "A reading for this device and timestamp already exists; skipped.",
+                    saved
+                });
+            }
 
             return Ok(new
             {
                 status = "ok",
-                saved = new
-                {
-                    timestamp = reading.Timestamp.ToString("o", CultureInfo.InvariantCulture),
-                    device = reading.Device,
-                    tempC = reading.TempC,
-                    tempF = reading.TempF,
-                    humidity = reading.Humidity,
-                    ip = reading.Ip
-                }
+                saved
             });
+
         }
     }
 }

@@ -401,40 +401,8 @@ body {
     text-decoration: none;
 }
 
-/* gauges */
-.gauge-panel h3 {
-    font-size: 1rem;
-    font-weight: 600;
-    margin: 0 0 16px 0;
-}
-
-.gauge-grid {
-    display: flex;
-    justify-content: space-around;
-    gap: 10px;
-    flex-wrap: wrap;
-}
-
-.gauge-item {
-    text-align: center;
-    flex: 1;
-    min-width: 110px;
-}
-
-.gauge-label {
-    font-size: 0.8rem;
-    color: var(--text-muted);
-    margin-bottom: 6px;
-    font-weight: 600;
-}
-
-.gauge-value {
-    font-size: 1.1rem;
-    font-weight: 700;
-    margin-top: 6px;
-}
-
 /* ---------------- Sensors modal ---------------- */
+
 .sensors-modal-content {
     border-radius: 12px;
     border: none;
