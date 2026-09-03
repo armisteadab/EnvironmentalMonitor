@@ -401,6 +401,79 @@ body {
     text-decoration: none;
 }
 
+.readings-pagination {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin-top: 14px;
+}
+
+.readings-pagination .page-link {
+    display: inline-block;
+    padding: 6px 10px;
+    font-size: 0.85rem;
+    color: var(--accent-blue);
+    text-decoration: none;
+    border: 1px solid var(--card-border);
+    border-radius: 6px;
+}
+
+.readings-pagination .page-link:hover {
+    background: var(--card-border);
+}
+
+.readings-pagination .page-link.active {
+    background: var(--accent-blue);
+    color: #fff;
+    border-color: var(--accent-blue);
+    font-weight: 600;
+}
+
+.readings-pagination .page-link.disabled {
+    pointer-events: none;
+    opacity: 0.4;
+}
+
+.readings-pagination .page-ellipsis {
+    padding: 0 4px;
+    color: var(--text-muted);
+}
+
+.page-jump-form {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+
+.page-jump-input {
+    width: 64px;
+    padding: 5px 8px;
+    font-size: 0.85rem;
+    border: 1px solid var(--card-border);
+    border-radius: 6px;
+    background: var(--card-bg);
+    color: inherit;
+}
+
+.page-jump-btn {
+    padding: 6px 12px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #fff;
+    background: var(--accent-blue);
+    border: 1px solid var(--accent-blue);
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.page-jump-btn:hover {
+    opacity: 0.9;
+}
+
 /* ---------------- Sensors modal ---------------- */
 
 .sensors-modal-content {

@@ -206,11 +206,69 @@ namespace EnvironmentalMonitor.Services
             // ----- Recent readings table (all readings within the same
             //       hoursBack window used for the charts above, so the
             //       table and graphs always agree on what "recent" means) -----
-            vm.RecentReadings = all
+            vm.RecentReadings = GetRecentReadings(hoursBack, all, asOf);
+
+            return vm;
+        }
+
+        /// <summary>
+        /// Builds the "recent readings" table rows for the given lookback window,
+        /// used both by the Dashboard summary and by the dedicated Recent Readings
+        /// page. Accepts pre-loaded readings/asOf so BuildDashboard can reuse the
+        /// same data it already fetched; when called on its own (e.g. from
+        /// ReadingsController), those are loaded fresh.
+        /// </summary>
+        public List<RecentReadingRow> GetRecentReadings(int hoursBack, List<SensorReading>? all = null, DateTime? asOfOverride = null)
+        {
+            all ??= GetAll();
+            var asOf = asOfOverride ?? GetAsOf();
+            var windowStart = asOf.AddHours(-hoursBack);
+
+            return all
                 .Where(r => r.Timestamp >= windowStart && r.Timestamp <= asOf)
                 .OrderByDescending(r => r.Timestamp)
                 .Select(r =>
+                {
+                    var meta = DeviceMeta.TryGetValue(r.Device, out var m) ? m : (r.Device, "#6b7280");
+                    var online = (asOf - r.Timestamp).TotalMinutes < 60;
+                    return new RecentReadingRow
+                    {
+                        Timestamp = r.Timestamp,
+                        SensorName = meta.Item1,
+                        ColorHex = meta.Item2,
+                        TempF = r.TempF,
+                        TempC = r.TempC,
+                        Humidity = r.Humidity,
+                        Online = online,
+                        Co2 = r.Co2
+                    };
+                })
+                .ToList();
+        }
 
+        /// <summary>
+        /// Returns one page of readings, newest first, across the *entire* history
+        /// (not limited to a recent-hours window), along with the total count so
+        /// the caller can compute how many pages exist. Used by the dedicated
+        /// Recent Readings page so users can page all the way back to the
+        /// beginning of the data.
+        /// </summary>
+        public (List<RecentReadingRow> Rows, int TotalCount) GetReadingsPage(int pageNumber, int pageSize)
+        {
+            using var db = _dbFactory.CreateDbContext();
+
+            var totalCount = db.Readings.Count();
+            var asOf = GetAsOf();
+
+            var page = db.Readings
+                .AsNoTracking()
+                .OrderByDescending(r => r.Timestamp)
+                .Skip((pageNumber - 1) * pageSize)
+                .Take(pageSize)
+                .ToList();
+
+            var rows = page
+                .Select(r =>
                 {
                     var meta = DeviceMeta.TryGetValue(r.Device, out var m) ? m : (r.Device, "#6b7280");
                     var online = (asOf - r.Timestamp).TotalMinutes < 60;
@@ -228,7 +286,7 @@ namespace EnvironmentalMonitor.Services
                 })
                 .ToList();
 
-            return vm;
+            return (rows, totalCount);
         }
 
         /// <summary>

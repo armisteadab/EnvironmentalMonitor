@@ -1,0 +1,83 @@
+@model EnvironmentalMonitor.Models.ReadingsIndexViewModel
+@{
+    ViewData["Title"] = "Recent Readings";
+}
+
+<div class="dash-row row-bottom">
+    <div class="card-panel table-panel" style="flex: 1 1 100%;">
+        <h3>Recent Readings</h3>
+        <div class="readings-table-wrap">
+            <table class="readings-table">
+                <thead>
+                    <tr>
+                        <th>Time</th>
+                        <th>Sensor</th>
+                        <th>Temp (&deg;F)</th>
+                        <th>Temp (&deg;C)</th>
+                        <th>Humidity (%)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var row in Model.Readings)
+                    {
+                        <tr>
+                            <td>@row.Timestamp.ToString("MMM d, yyyy h:mm tt")</td>
+                            <td><span class="sensor-dot" style="background:@row.ColorHex;"></span>@row.SensorName</td>
+                            <td>@row.TempF.ToString("0")</td>
+                            <td>@row.TempC.ToString("0")</td>
+                            <td>@row.Humidity.ToString("0")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        @{
+            var startPage = Math.Max(1, Model.PageNumber - 3);
+            var endPage = Math.Min(Model.TotalPages, Model.PageNumber + 3);
+        }
+        @if (Model.TotalPages > 1)
+        {
+            <nav class="readings-pagination" aria-label="Recent readings pages">
+                <a class="page-link @(Model.PageNumber <= 1 ? "disabled" : "")"
+                   href="@Url.Action("Index", new { page = 1 })">&laquo; First</a>
+                <a class="page-link @(Model.PageNumber <= 1 ? "disabled" : "")"
+                   href="@Url.Action("Index", new { page = Model.PageNumber - 1 })">&lsaquo; Prev</a>
+
+                @if (startPage > 1)
+                {
+                    <span class="page-ellipsis">&hellip;</span>
+                }
+                @for (var p = startPage; p <= endPage; p++)
+                {
+                    <a class="page-link @(p == Model.PageNumber ? "active" : "")"
+                       href="@Url.Action("Index", new { page = p })">@p</a>
+                }
+                @if (endPage < Model.TotalPages)
+                {
+                    <span class="page-ellipsis">&hellip;</span>
+                }
+
+                <a class="page-link @(Model.PageNumber >= Model.TotalPages ? "disabled" : "")"
+                   href="@Url.Action("Index", new { page = Model.PageNumber + 1 })">Next &rsaquo;</a>
+                <a class="page-link @(Model.PageNumber >= Model.TotalPages ? "disabled" : "")"
+                   href="@Url.Action("Index", new { page = Model.TotalPages })">Last &raquo;</a>
+
+                <form class="page-jump-form" action="@Url.Action("Index")" method="get">
+                    <label for="page-jump-input">Go to page</label>
+                    <input id="page-jump-input" class="page-jump-input" type="number" name="page"
+                           min="1" max="@Model.TotalPages" value="@Model.PageNumber" />
+                    <button type="submit" class="page-jump-btn">Go</button>
+                </form>
+            </nav>
+        }
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        // ---- Auto-reload every 5 minutes, same as the Dashboard ----
+        setTimeout(function () {
+            window.location.reload();
+        }, 5 * 60 * 1000);
+    </script>
+}

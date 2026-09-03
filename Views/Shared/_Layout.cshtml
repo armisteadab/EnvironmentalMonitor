@@ -15,7 +15,7 @@
                 <span class="brand-text">ESP32 Environmental Monitor</span>
             </div>
             <nav class="sidebar-nav">
-                <a class="nav-item active" href="/">
+                <a class="nav-item" href="/" id="dashboardNavLink" data-path="/">
                     <span class="nav-icon">&#127968;</span> Dashboard
                 </a>
                 <a class="nav-item" href="#" id="sensorsNavLink" data-bs-toggle="modal" data-bs-target="#sensorsModal">
@@ -26,13 +26,17 @@
                     <span class="nav-icon">&#128203;</span> Data
                 </a>
 
-                <a class="nav-item" href="/Reports">
+                <a class="nav-item" href="/Readings" id="readingsNavLink" data-path="/Readings">
+                    <span class="nav-icon">&#128202;</span> Recent Readings
+                </a>
+
+                <a class="nav-item" href="/Reports" id="reportsNavLink" data-path="/Reports">
                     <span class="nav-icon">&#128200;</span> AI Report Chat
                 </a>
-                <a class="nav-item" href="#">
+                <a class="nav-item" href="#" id="alertsNavLink">
                     <span class="nav-icon">&#128276;</span> Alerts
                 </a>
-                <a class="nav-item" href="#">
+                <a class="nav-item" href="#" id="settingsNavLink">
                     <span class="nav-icon">&#9881;</span> Settings
                 </a>
             </nav>
@@ -109,6 +113,49 @@
     <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <script>
+        (function () {
+            // Highlight whichever sidebar item was last interacted with, so the
+            // blue "active" bar moves from Dashboard to whatever the user picked,
+            // and persists that choice across full page navigations.
+            var navItems = Array.prototype.slice.call(document.querySelectorAll('.sidebar-nav .nav-item'));
+            var storageKey = 'lastActiveNavItemId';
+            var currentPath = window.location.pathname.replace(/\/+$/, '') || '/';
+
+            function setActive(item) {
+                navItems.forEach(function (el) {
+                    el.classList.remove('active');
+                });
+                if (item) {
+                    item.classList.add('active');
+                    if (item.id) {
+                        localStorage.setItem(storageKey, item.id);
+                    }
+                }
+            }
+
+            // Prefer matching the current URL to a real navigation link.
+            var matchedByPath = navItems.find(function (el) {
+                var path = el.getAttribute('data-path');
+                if (!path) return false;
+                var normalized = path.replace(/\/+$/, '') || '/';
+                return normalized === currentPath;
+            });
+
+            if (matchedByPath) {
+                setActive(matchedByPath);
+            } else {
+                var lastId = localStorage.getItem(storageKey);
+                var lastItem = lastId ? document.getElementById(lastId) : null;
+                setActive(lastItem || document.getElementById('dashboardNavLink'));
+            }
+
+            navItems.forEach(function (el) {
+                el.addEventListener('click', function () {
+                    setActive(el);
+                });
+            });
+        })();
+
         (function () {
             // Bootstrap's [data-bs-dismiss="modal"] click handler calls
             // event.preventDefault() on <a> elements before hiding the modal,

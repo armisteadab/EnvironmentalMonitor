@@ -49,43 +49,13 @@
     </div>
 </div>
 
-<!-- ===================== Row 3: Recent Readings + Outdoor CO2 Chart ===================== -->
+<!-- ===================== Row 3: Outdoor CO2 Chart ===================== -->
+<!-- Note: the "Recent Readings" table that used to live here now has its own
+     dedicated page, linked from the "Recent Readings" item in the sidebar
+     (same pattern as "AI Report Chat" moving off the Dashboard). -->
 
 <div class="dash-row row-bottom">
-    <div class="card-panel table-panel">
-        <h3>Recent Readings (Last 24 Hours)</h3>
-        <div class="readings-table-wrap">
-            <table class="readings-table">
-                <thead>
-                    <tr>
-                        <th>Time</th>
-                        <th>Sensor</th>
-                        <th>Temp (&deg;F)</th>
-                        <th>Temp (&deg;C)</th>
-                        <th>Humidity (%)</th>
-                        <th>Status</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach (var row in Model.RecentReadings)
-                    {
-                        <tr>
-                            <td>@row.Timestamp.ToString("MMM d, yyyy h:mm tt")</td>
-                            <td><span class="sensor-dot" style="background:@row.ColorHex;"></span>@row.SensorName</td>
-                            <td>@row.TempF.ToString("0")</td>
-                            <td>@row.TempC.ToString("0")</td>
-                            <td>@row.Humidity.ToString("0")</td>
-                            <td class="@(row.Online ? "status-online" : "")">@(row.Online ? "Online" : "Offline")</td>
-                        </tr>
-                    }
-                </tbody>
-            </table>
-        </div>
-        <a class="view-all-link" href="/Dashboard/DownloadCsv" download>Download all data &rarr;</a>
-    </div>
-
-
-    <div class="card-panel chart-panel">
+    <div class="card-panel chart-panel" style="flex: 1 1 100%;">
         <div class="chart-panel-head">
             <h3>Outdoor CO&#8322; (ppm) - Last 24 Hours</h3>
         </div>

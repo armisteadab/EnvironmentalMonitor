@@ -74,4 +74,20 @@ namespace EnvironmentalMonitor.Models
         public List<double?> OutsideCo2Series { get; set; } = new();
     }
 
+    /// <summary>View model for the dedicated Recent Readings page.</summary>
+    public class ReadingsIndexViewModel
+    {
+        public DateTime AsOf { get; set; }
+        public List<RecentReadingRow> Readings { get; set; } = new();
+
+        /// <summary>1-based current page number.</summary>
+        public int PageNumber { get; set; } = 1;
+        /// <summary>Number of rows per page.</summary>
+        public int PageSize { get; set; }
+        /// <summary>Total number of readings across all pages (going back to the beginning of the data).</summary>
+        public int TotalCount { get; set; }
+        /// <summary>Total number of pages, computed from TotalCount/PageSize.</summary>
+        public int TotalPages { get; set; }
+    }
+
 }
