@@ -1,8 +1,12 @@
 using System;
 using System.Globalization;
+using System.Linq;
+using System.Net;
 using EnvironmentalMonitor.Models;
 using EnvironmentalMonitor.Services;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 
 namespace EnvironmentalMonitor.Controllers
 {
@@ -33,15 +37,65 @@ namespace EnvironmentalMonitor.Controllers
     public class SensorIngestController : ControllerBase
     {
         private readonly SensorDataService _dataService;
+        private readonly IConfiguration _configuration;
+        private readonly ILogger<SensorIngestController> _logger;
 
-        public SensorIngestController(SensorDataService dataService)
+        public SensorIngestController(
+            SensorDataService dataService,
+            IConfiguration configuration,
+            ILogger<SensorIngestController> logger)
         {
             _dataService = dataService;
+            _configuration = configuration;
+            _logger = logger;
+        }
+
+        /// <summary>
+        /// Restricts this endpoint to the fixed set of public IP addresses
+        /// configured under SensorIngest:AllowedIps (see appsettings.json),
+        /// which should be the home/sensor network's public IP(s). This keeps
+        /// the ingest endpoint from accepting readings from arbitrary internet
+        /// callers even though it isn't otherwise authenticated, while leaving
+        /// the rest of the site (dashboard, alerts, reports) open as before.
+        /// If the setting is missing or empty, the check is skipped (fails
+        /// open) so local development isn't accidentally locked out.
+        /// </summary>
+        private bool IsCallerAllowed()
+        {
+            var allowedIps = _configuration.GetSection("SensorIngest:AllowedIps").Get<string[]>();
+            if (allowedIps == null || allowedIps.Length == 0)
+            {
+                return true;
+            }
+
+            var remoteIp = HttpContext.Connection.RemoteIpAddress;
+            if (remoteIp == null)
+            {
+                return false;
+            }
+
+            // Normalize IPv4-mapped IPv6 addresses (e.g. ::ffff:1.2.3.4) so they
+            // compare equal to a plain IPv4 entry in the allow-list.
+            if (remoteIp.IsIPv4MappedToIPv6)
+            {
+                remoteIp = remoteIp.MapToIPv4();
+            }
+
+            return allowedIps.Any(allowed =>
+                IPAddress.TryParse(allowed.Trim(), out var allowedAddress) &&
+                allowedAddress.Equals(remoteIp));
         }
 
         [HttpPost]
         public IActionResult Post([FromBody] SensorIngestRequest request)
         {
+            if (!IsCallerAllowed())
+            {
+                var remoteIp = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+                _logger.LogWarning("Rejected sensor-ingest request from disallowed IP {RemoteIp}.", remoteIp);
+                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Forbidden." });
+            }
+
             if (request == null)
             {
                 return BadRequest(new { error = "Request body is required." });

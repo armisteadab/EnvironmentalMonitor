@@ -35,15 +35,17 @@
 
 <!-- ===================== Row 2: Charts ===================== -->
 <div class="dash-row row-charts">
-    <div class="card-panel chart-panel">
+    <div class="card-panel chart-panel chart-zoomable" data-chart-target="tempChart">
         <div class="chart-panel-head">
             <h3>Temperature (&deg;F) - Last 24 Hours</h3>
+            <span class="chart-zoom-hint" title="Click to expand">&#128470;</span>
         </div>
         <canvas id="tempChart"></canvas>
     </div>
-    <div class="card-panel chart-panel">
+    <div class="card-panel chart-panel chart-zoomable" data-chart-target="humChart">
         <div class="chart-panel-head">
             <h3>Humidity (%) - Last 24 Hours</h3>
+            <span class="chart-zoom-hint" title="Click to expand">&#128470;</span>
         </div>
         <canvas id="humChart"></canvas>
     </div>
@@ -55,13 +57,27 @@
      (same pattern as "AI Report Chat" moving off the Dashboard). -->
 
 <div class="dash-row row-bottom">
-    <div class="card-panel chart-panel" style="flex: 1 1 100%;">
+    <div class="card-panel chart-panel chart-zoomable" style="flex: 1 1 100%;" data-chart-target="co2Chart">
         <div class="chart-panel-head">
             <h3>Outdoor CO&#8322; (ppm) - Last 24 Hours</h3>
+            <span class="chart-zoom-hint" title="Click to expand">&#128470;</span>
         </div>
         <canvas id="co2Chart"></canvas>
     </div>
 
+</div>
+
+<!-- ===================== Fullscreen Chart Zoom Modal ===================== -->
+<div class="chart-zoom-overlay" id="chartZoomOverlay">
+    <div class="chart-zoom-dialog">
+        <div class="chart-zoom-header">
+            <h3 id="chartZoomTitle"></h3>
+            <button type="button" class="chart-zoom-close" id="chartZoomClose" aria-label="Close">&times;</button>
+        </div>
+        <div class="chart-zoom-body">
+            <canvas id="chartZoomCanvas"></canvas>
+        </div>
+    </div>
 </div>
 
 @section Scripts {
@@ -92,11 +108,24 @@
             }));
         }
 
-        new Chart(document.getElementById('tempChart'), {
+        // Chart configs are kept in a registry (keyed by canvas id) alongside each
+        // chart's live Chart.js instance, so the zoom modal below can re-create the
+        // exact same chart (same data/options) larger, rather than trying to resize
+        // or reparent the original <canvas> element.
+        const chartRegistry = {};
+
+        function registerChart(canvasId, config, title) {
+            const instance = new Chart(document.getElementById(canvasId), config);
+            chartRegistry[canvasId] = { config, title, instance };
+            return instance;
+        }
+
+        registerChart('tempChart', {
             type: 'line',
             data: { labels: chartLabels, datasets: buildDatasets(tempSeries) },
             options: {
                 responsive: true,
+                maintainAspectRatio: false,
                 interaction: { mode: 'index', intersect: false },
                 plugins: { legend: { position: 'top', align: 'start' } },
                 scales: {
@@ -104,13 +133,14 @@
                     y: { title: { display: false } }
                 }
             }
-        });
+        }, 'Temperature (\u00b0F) - Last 24 Hours');
 
-        new Chart(document.getElementById('humChart'), {
+        registerChart('humChart', {
             type: 'line',
             data: { labels: chartLabels, datasets: buildDatasets(humSeries) },
             options: {
                 responsive: true,
+                maintainAspectRatio: false,
                 interaction: { mode: 'index', intersect: false },
                 plugins: { legend: { position: 'top', align: 'start' } },
                 scales: {
@@ -118,9 +148,9 @@
                     y: { min: 0, max: 100 }
                 }
             }
-        });
+        }, 'Humidity (%) - Last 24 Hours');
 
-        new Chart(document.getElementById('co2Chart'), {
+        registerChart('co2Chart', {
             type: 'line',
             data: {
                 labels: chartLabels,
@@ -137,6 +167,7 @@
             },
             options: {
                 responsive: true,
+                maintainAspectRatio: false,
                 interaction: { mode: 'index', intersect: false },
                 plugins: { legend: { position: 'top', align: 'start' } },
                 scales: {
@@ -144,8 +175,64 @@
                     y: { title: { display: false } }
                 }
             }
-        });
+        }, 'Outdoor CO\u2082 (ppm) - Last 24 Hours');
 
+        // ---- Click-to-zoom: expand any dashboard chart to a fullscreen modal ----
+        (function () {
+            const overlay = document.getElementById('chartZoomOverlay');
+            const titleEl = document.getElementById('chartZoomTitle');
+            const zoomCanvas = document.getElementById('chartZoomCanvas');
+            const closeBtn = document.getElementById('chartZoomClose');
+            let zoomChartInstance = null;
+
+            function openZoom(canvasId) {
+                const entry = chartRegistry[canvasId];
+                if (!entry) return;
+
+                if (zoomChartInstance) {
+                    zoomChartInstance.destroy();
+                    zoomChartInstance = null;
+                }
+
+                titleEl.textContent = entry.title;
+
+                // Deep-clone the original config so the zoomed chart is fully
+                // independent of the small dashboard chart (destroying one must
+                // never affect the other).
+                const clonedConfig = JSON.parse(JSON.stringify(entry.config));
+                clonedConfig.options = clonedConfig.options || {};
+                clonedConfig.options.responsive = true;
+                clonedConfig.options.maintainAspectRatio = false;
+
+                zoomChartInstance = new Chart(zoomCanvas, clonedConfig);
+
+                overlay.classList.add('open');
+                document.body.style.overflow = 'hidden';
+            }
+
+            function closeZoom() {
+                overlay.classList.remove('open');
+                document.body.style.overflow = '';
+                if (zoomChartInstance) {
+                    zoomChartInstance.destroy();
+                    zoomChartInstance = null;
+                }
+            }
+
+            document.querySelectorAll('.chart-zoomable').forEach(function (panel) {
+                panel.addEventListener('click', function () {
+                    openZoom(panel.getAttribute('data-chart-target'));
+                });
+            });
+
+            closeBtn.addEventListener('click', closeZoom);
+            overlay.addEventListener('click', function (e) {
+                if (e.target === overlay) closeZoom();
+            });
+            document.addEventListener('keydown', function (e) {
+                if (e.key === 'Escape' && overlay.classList.contains('open')) closeZoom();
+            });
+        })();
 
         // ---- Auto-reload the dashboard every 5 minutes ----
         setTimeout(function () {

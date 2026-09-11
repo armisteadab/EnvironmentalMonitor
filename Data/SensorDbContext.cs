@@ -27,6 +27,9 @@ namespace EnvironmentalMonitor.Data
         public DbSet<ReportMessage> ReportMessages => Set<ReportMessage>();
         public DbSet<GeneratedReport> GeneratedReports => Set<GeneratedReport>();
 
+        /// <summary>SMS alert rules created via the AI Chat (see Views/Alerts and AlertsService/AlertMonitorService).</summary>
+        public DbSet<SmsAlert> SmsAlerts => Set<SmsAlert>();
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             modelBuilder.Entity<SensorReading>(entity =>
@@ -69,6 +72,17 @@ namespace EnvironmentalMonitor.Data
                     .WithMany(c => c.GeneratedReports)
                     .HasForeignKey(g => g.ConversationId)
                     .OnDelete(DeleteBehavior.Cascade);
+            });
+
+            modelBuilder.Entity<SmsAlert>(entity =>
+            {
+                entity.ToTable("SmsAlerts");
+                entity.HasKey(a => a.Id);
+                entity.Property(a => a.PhoneNumber).IsRequired().HasMaxLength(32);
+                entity.Property(a => a.Sensor).IsRequired().HasMaxLength(32);
+                entity.Property(a => a.Metric).IsRequired().HasMaxLength(32);
+                entity.Property(a => a.Comparator).IsRequired().HasMaxLength(16);
+                entity.Property(a => a.Description).IsRequired().HasMaxLength(500);
             });
         }
     }

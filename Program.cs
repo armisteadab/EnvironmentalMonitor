@@ -1,5 +1,6 @@
 using EnvironmentalMonitor.Data;
 using EnvironmentalMonitor.Services;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -28,7 +29,10 @@ builder.Services.AddDbContextFactory<SensorDbContext>(options =>
     options.UseSqlite($"Data Source={dbPath}"));
 
 builder.Services.AddSingleton<SensorDataService>();
+builder.Services.AddSingleton<AlertsService>();
+builder.Services.AddSingleton<SmsService>();
 builder.Services.AddSingleton<ReportingService>();
+builder.Services.AddHostedService<AlertMonitorService>();
 
 var app = builder.Build();
 
@@ -98,6 +102,24 @@ using (var scope = app.Services.CreateScope())
                 FOREIGN KEY (ConversationId) REFERENCES ReportConversations (Id) ON DELETE CASCADE
         );");
     db.Database.ExecuteSqlRaw("CREATE INDEX IF NOT EXISTS IX_GeneratedReports_ConversationId ON GeneratedReports (ConversationId);");
+
+    // Same "no EF migrations" schema-evolution approach as above: the SMS
+    // Alerts feature's table was added after EnsureCreated() first ran on
+    // existing deployments, so create it manually via raw SQL if missing.
+    db.Database.ExecuteSqlRaw(@"
+        CREATE TABLE IF NOT EXISTS SmsAlerts (
+            Id INTEGER NOT NULL CONSTRAINT PK_SmsAlerts PRIMARY KEY AUTOINCREMENT,
+            ConversationId INTEGER NULL,
+            PhoneNumber TEXT NOT NULL,
+            Sensor TEXT NOT NULL,
+            Metric TEXT NOT NULL,
+            Comparator TEXT NOT NULL,
+            Threshold REAL NOT NULL,
+            Description TEXT NOT NULL,
+            CreatedAt TEXT NOT NULL,
+            IsActive INTEGER NOT NULL,
+            LastTriggeredAt TEXT NULL
+        );");
 }
 
 
@@ -108,6 +130,21 @@ if (!app.Environment.IsDevelopment())
     // The default HSTS value is 30 days. You may want to change this for production scenarios, see https://aka.ms/aspnetcore-hsts.
     app.UseHsts();
 }
+
+// Azure App Service terminates TLS and proxies requests to this app, so the
+// "real" client IP arrives via the X-Forwarded-For header rather than as the
+// socket's remote address. Forwarding it into HttpContext.Connection.RemoteIpAddress
+// lets SensorIngestController's IP allow-list check see the actual caller's IP.
+app.UseForwardedHeaders(new ForwardedHeadersOptions
+{
+    ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto,
+    // Azure's front-end load balancer is the only proxy hop, and its address
+    // isn't fixed/known in advance, so we can't restrict KnownProxies/KnownNetworks
+    // the way the ASP.NET Core docs normally recommend for on-prem reverse
+    // proxies. The X-Forwarded-For header Azure sets is trustworthy because it
+    // is only reachable through Azure's own edge, not directly from clients.
+    ForwardLimit = null
+});
 
 app.UseHttpsRedirection();
 app.UseStaticFiles();
